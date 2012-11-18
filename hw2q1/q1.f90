@@ -460,7 +460,6 @@ PROGRAM main
 
     CALL q1d(func, startPoint2, startVals,1.0D0)
 
-#if 0
     distance(1)=5.0D0
     distance(2)=10.0D0
     distance(3)=15.0D0
@@ -504,7 +503,6 @@ PROGRAM main
             print *, "3: ",startPoint2(3,:), " Value: ",startVals(3)
         end do
     end do
-#endif
 
     deallocate(intervals)
 CONTAINS
