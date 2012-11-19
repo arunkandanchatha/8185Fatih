@@ -2,6 +2,60 @@ MODULE nr
     use nrtype
     implicit none
 contains
+    FUNCTION chebft(a,b,n,func)
+        ! Called prior to using chebev.
+        ! INPUTS: a,b - bounds of the interval
+        !         n - the maximum degree for the estimate
+        USE nrtype; USE nrutil, ONLY : arth,outerprod
+        IMPLICIT NONE
+        REAL(dp), INTENT(IN) :: a,b
+        INTEGER(I4B), INTENT(IN) :: n
+        REAL(dp), DIMENSION(n) :: chebft
+        PROCEDURE(template_function), POINTER, INTENT(in) :: func
+        REAL(DP) :: bma,bpa
+        REAL(DP), DIMENSION(n) :: theta,funcEvals
+        REAL(DP),DIMENSION(1) :: pointToEval
+        INTEGER(I4B) :: i
+
+        bma=0.5_dp*(b-a)
+        bpa=0.5_dp*(b+a)
+        theta(:)=PI_D*arth(0.5_dp,1.0_dp,n)/n
+        do i=1,n
+            pointToEval(1)=real(cos(theta(i))*bma+bpa,dp)
+            funcEvals(i)=func(pointToEval)
+        end do
+        chebft(:)=matmul(cos(outerprod(arth(0.0_dp,1.0_dp,n),theta)), &
+            &funcEvals)*2.0_dp/n
+    END FUNCTION chebft
+
+    FUNCTION chebev(a,b,c,x)
+        ! Called after using chebft.
+        ! INPUTS: a,b - bounds of the interval (must be same as used
+        !               in chebft call)
+        !         c - the first m (<n) coefficients returned from
+        !             chebft
+        !         x - the point where we want to estimate the value
+    USE nrtype; USE nrutil, ONLY : nrerror
+    IMPLICIT NONE
+    REAL(dp), INTENT(IN) :: a,b,x
+    REAL(dp), DIMENSION(:), INTENT(IN) :: c
+    REAL(dp) :: chebev
+    INTEGER(I4B) :: j,m
+    REAL(dp) :: d,dd,sv,y,y2
+    if ((x-a)*(x-b) > 0.0) call nrerror('x not in range in chebev')
+    m=size(c)
+    d=0.0
+    dd=0.0
+    y=(2.0_dp*x-a-b)/(b-a)
+    y2=2.0_dp*y
+    do j=m,2,-1
+        sv=d
+        d=y2*d-dd+c(j)
+        dd=sv
+    end do
+    chebev=y*d-dd+0.5_dp*c(1)
+    END FUNCTION chebev
+
     SUBROUTINE tridag(a,b,c,r,u)
         USE nrtype; USE nrutil, ONLY : assert_eq,nrerror
         IMPLICIT NONE
@@ -146,19 +200,16 @@ contains
 
 
     !-------------------------------------
-    SUBROUTINE q2a(func1,func2,func3,Dfunc1,Dfunc2,Dfunc3)
+    SUBROUTINE q2a(func1,Dfunc1)
         !-------------------------------------
         PROCEDURE(template_function), POINTER, INTENT(in) :: func1
-        PROCEDURE(template_function), POINTER, INTENT(in) :: func2
-        PROCEDURE(template_function), POINTER, INTENT(in) :: func3
         PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
-        PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc2
-        PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc3
 
-        INTEGER, PARAMETER :: numSteps=10
-        INTEGER, PARAMETER :: numSteps2=20
+        INTEGER, PARAMETER :: numSteps=10, numSteps2=20, orderFuncCheb=30, orderFuncCheb2=50
         REAL(DP), DIMENSION(numSteps+1) :: gridPoints, funcAtGrid, splinePoints
         REAL(DP), DIMENSION(numSteps2+1) :: gridPoints2, funcAtGrid2, splinePoints2
+        REAL(DP), DIMENSION(orderFuncCheb) :: chebCoeff
+        REAL(DP), DIMENSION(orderFuncCheb2) :: chebCoeff2
         REAL(DP) :: result1, result11, result2, pointToEval
         REAL(DP), DIMENSION(1) :: pointToEvalTemp
         REAL(DP), DIMENSION(1) :: dFx1, dFxn, dFx12, dFxn2
@@ -188,6 +239,7 @@ contains
             result2=func1(pointToEvalTemp)
             print *, pointToEval,abs((result2-result1)/result2),abs((result2-result11)/result2)
         end do
+        print *," "
 
         !note: spline requires as many calls to the utility function, as
         !      the number of grid points. This is the same as linear, if
@@ -224,6 +276,25 @@ contains
             result2=func1(pointToEvalTemp)
             print *, pointToEval,abs((result2-result1)/result2),abs((result2-result11)/result2)
         end do
+        print *," "
+
+        !note: chebev requires as many calls to the utility function, as
+        !      the number of grid points. This is the same as linear, if
+        !      we are making a lot of interpolations. More, if we are making
+        !      just one
+        print *,"Chebyshev interpolation"
+        chebCoeff = chebft(epsilon(1.0D0),2.05D0,orderFuncCheb,func1)
+        chebCoeff2 = chebft(epsilon(1.0D0),2.05D0,orderFuncCheb2,func1)
+        print *,"Point                  ",orderFuncCheb,"          ",orderFuncCheb2
+        do i=1,floor(2.0D0/.05D0)
+            pointToEval = 0.05D0*i
+            result1=chebev(epsilon(1.0D0),2.05D0,chebCoeff,pointToEval)
+            result11=chebev(epsilon(1.0D0),2.05D0,chebCoeff,pointToEval)
+            pointToEvalTemp(1)=pointToEval
+            result2=func1(pointToEvalTemp)
+            print *, pointToEval,abs((result2-result1)/result2),abs((result2-result11)/result2)
+        end do
+        print *," "
 
     END SUBROUTINE q2a
 END MODULE hmwk2
@@ -244,7 +315,7 @@ program q2
     Dfunc2 => Du2
     Dfunc3 => Du3
 
-    CALL q2a(func1, func2, func3, Dfunc1, Dfunc2, Dfunc3)
+    CALL q2a(func1, Dfunc1)
 
 CONTAINS
 
