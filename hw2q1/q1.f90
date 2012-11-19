@@ -252,7 +252,7 @@ MODULE  hmwk2
     use nrtype
     use nr
     implicit none
-    INTEGER(I8B), parameter :: NUM_ITER=100000000
+    INTEGER(I8B), parameter :: NUM_ITER=10000000
     INTEGER(KIND=8), save:: thetaCalls=0
     REAL(DP), allocatable, dimension(:,:) :: intervals
     LOGICAL, save :: firstTime = .true.
@@ -291,8 +291,10 @@ contains
         INTEGER(I4B) :: iter
         REAL(DP):: tol=1.0e-12
 
-        CALL dfpmin(startPoint,tol,iter,fret,func,dfunc)
 
+        if(maxval(abs(dfunc(startPoint))) > 0.0D0) then
+            CALL dfpmin(startPoint,tol,iter,fret,func,dfunc)
+        end if
     END SUBROUTINE q1b
 
     !-------------------------------------
@@ -316,7 +318,7 @@ contains
     END SUBROUTINE q1c
 
     !-------------------------------------
-    SUBROUTINE q1d(func,startPoints,startVals,distance)
+    SUBROUTINE q1d(func,startPoints,startVals,distance,dfunc)
         !-------------------------------------
 
         !use nelder-meade
@@ -326,13 +328,14 @@ contains
         !   2) startPoint - the co-ordinates of the starting point simplex
         !   3) startVals - the value of the function at the starting points
         PROCEDURE(template_function), POINTER, INTENT(in) :: func
+        PROCEDURE(template_derivative), OPTIONAL, POINTER, INTENT(in) :: dfunc
         REAL(DP), DIMENSION(:,:), INTENT(INOUT) :: startPoints
         REAL(DP), DIMENSION(:), INTENT(INOUT) :: startVals
         REAL(DP), INTENT(IN) :: distance
         INTEGER(I4B) :: iter, counter=0, i, bestCount
         REAL(DP):: tol=1.0e-2,tol2=1.0e-10,diff
-        REAL(DP), DIMENSION(size(startPoints,dim=2)) :: currentBest, currentStart
-        REAL(DP) :: currentBestVal
+        REAL(DP), DIMENSION(size(startPoints,dim=2)) :: currentBest, currentStart, currentVal
+        REAL(DP) :: currentBestVal,fret
 
         diff=1.0D0
         currentBest = startPoints(1,:)
@@ -342,33 +345,26 @@ contains
             counter = counter + 1
 
             if(mod(counter,1000000)==1)then
-                print *, "Amoeba:",counter
-                print *, "Initial Simplex, "
-                print *, "1: ",startPoints(1,:), " Value: ",startVals(1)
-                print *, "2: ",startPoints(2,:), " Value: ",startVals(2)
-                print *, "3: ",startPoints(3,:), " Value: ",startVals(3)
+                print *, "q1d:",counter
                 flush(6)
             end if
 
             CALL amoeba(startPoints,startVals, tol,func,iter)
+
+            !option to do a quasi-newton method when we are close
+            if(present(dfunc))then
+                currentVal = startPoints(1,:)
+                fret=maxval(abs(dfunc(currentVal)))
+                if(fret > 0.0D0) then
+                    CALL dfpmin(currentVal,tol2,iter,startVals(1),func,dfunc)
+                end if
+            end if
 
             if (startVals(1)<currentBestVal) then
                 diff = abs(currentBestVal-startVals(1))
                 currentBest = startPoints(1,:)
                 currentBestVal = startVals(1)
                 bestCount = counter
-            end if
-
-            if(mod(counter,1000000)==1)then
-                print *, "Final Simplex"
-                print *, "1: ",startPoints(1,:), " Value: ",startVals(1)
-                print *, "2: ",startPoints(2,:), " Value: ",startVals(2)
-                print *, "3: ",startPoints(3,:), " Value: ",startVals(3)
-                print *, " "
-                print *,"count: ",bestCount," Point: ",currentBest," Val: ",currentBestVal
-                print *, "diff", diff
-                print *, " "
-                flush(6)
             end if
 
             currentStart = getNextPoint(currentBest)
@@ -447,18 +443,8 @@ PROGRAM main
     intervals(2,1)=-20.0D0
     intervals(2,2)=20.0D0
 
-    startpoints(1,1)=-25.0D0
-    startpoints(1,2)=25.0D0
-
     func => myfunction
     deriv => myderivative
-
-    startPoint2 = getSimplexAround(startpoints(1,:), 0.5D0)
-    startVals(1)=func(startPoint2(1,:))
-    startVals(2)=func(startPoint2(2,:))
-    startVals(3)=func(startPoint2(3,:))
-
-    CALL q1d(func, startPoint2, startVals,1.0D0)
 
     distance(1)=5.0D0
     distance(2)=10.0D0
@@ -504,6 +490,15 @@ PROGRAM main
         end do
     end do
 
+    startPoint2 = getSimplexAround(startpoints(1,:), 5.0D0)
+    startVals(1)=func(startPoint2(1,:))
+    startVals(2)=func(startPoint2(2,:))
+    startVals(3)=func(startPoint2(3,:))
+
+    !why this distance? It seems that the larger the size of the original simplex,
+    !the better the algorithm does.
+    CALL q1d(func, startPoint2, startVals,distance(3),deriv)
+
     deallocate(intervals)
 CONTAINS
 
@@ -538,7 +533,9 @@ CONTAINS
         REAL(DP), DIMENSION(:), INTENT(IN) :: point
         REAL(DP), DIMENSION(size(point,dim=1)) :: z
         REAL(DP):: x,y
+
         IF(size(point)/=2)THEN
+            print *,size(point),point
             CALL sub_mystop("myderivative: incorrect dimensions in initial point.&
                 & Should be two."            )
         END IF
