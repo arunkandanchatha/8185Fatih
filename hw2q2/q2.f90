@@ -205,7 +205,7 @@ contains
         PROCEDURE(template_function), POINTER, INTENT(in) :: func1
         PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
 
-        INTEGER, PARAMETER :: numSteps=10, numSteps2=20, orderFuncCheb=30, orderFuncCheb2=50
+        INTEGER, PARAMETER :: numSteps=100, numSteps2=200, orderFuncCheb=30, orderFuncCheb2=50
         REAL(DP), DIMENSION(numSteps+1) :: gridPoints, funcAtGrid, splinePoints
         REAL(DP), DIMENSION(numSteps2+1) :: gridPoints2, funcAtGrid2, splinePoints2
         REAL(DP), DIMENSION(orderFuncCheb) :: chebCoeff
@@ -283,13 +283,13 @@ contains
         !      we are making a lot of interpolations. More, if we are making
         !      just one
         print *,"Chebyshev interpolation"
-        chebCoeff = chebft(epsilon(1.0D0),2.05D0,orderFuncCheb,func1)
-        chebCoeff2 = chebft(epsilon(1.0D0),2.05D0,orderFuncCheb2,func1)
+        chebCoeff = chebft(.01D0,2.05D0,orderFuncCheb,func1)
+        chebCoeff2 = chebft(.01D0,2.05D0,orderFuncCheb2,func1)
         print *,"Point                  ",orderFuncCheb,"          ",orderFuncCheb2
         do i=1,floor(2.0D0/.05D0)
             pointToEval = 0.05D0*i
-            result1=chebev(epsilon(1.0D0),2.05D0,chebCoeff,pointToEval)
-            result11=chebev(epsilon(1.0D0),2.05D0,chebCoeff,pointToEval)
+            result1=chebev(.01D0,2.05D0,chebCoeff,pointToEval)
+            result11=chebev(.01D0,2.05D0,chebCoeff2,pointToEval)
             pointToEvalTemp(1)=pointToEval
             result2=func1(pointToEvalTemp)
             print *, pointToEval,abs((result2-result1)/result2),abs((result2-result11)/result2)
@@ -306,6 +306,7 @@ program q2
 
     PROCEDURE(template_function), POINTER :: func1, func2, func3
     PROCEDURE(template_derivative), POINTER :: Dfunc1, Dfunc2, Dfunc3
+    REAL(DP) :: alpha
 
     func1 => u1
     func2 => u2
@@ -316,7 +317,22 @@ program q2
     Dfunc3 => Du3
 
     CALL q2a(func1, Dfunc1)
-
+    CALL q2a(func2, Dfunc2)
+    alpha=2.0D0
+    print *,"------------------------------"
+    print *, "alpha: ",alpha
+    print *,"------------------------------"
+    CALL q2a(func3, Dfunc3)
+    alpha=5.0D0
+    print *,"------------------------------"
+    print *, "alpha: ",alpha
+    print *,"------------------------------"
+    CALL q2a(func3, Dfunc3)
+    alpha=10.0D0
+    print *,"------------------------------"
+    print *, "alpha: ",alpha
+    print *,"------------------------------"
+    CALL q2a(func3, Dfunc3)
 CONTAINS
 
     !-----------------
@@ -353,11 +369,11 @@ CONTAINS
         ! OUTPUTS: z - the value of the function at that point
         REAL(DP), DIMENSION(:), INTENT(IN) :: point
         REAL(DP) :: z
-        REAL(DP) :: x,alpha
+        REAL(DP) :: x
 
         x=point(1)
-        alpha=point(2)
         z = x**(1-alpha)/(1-alpha)
+!        z = x**(1-10.0D0)/(1-10.0D0)
 
     END FUNCTION u3
 
@@ -396,11 +412,11 @@ CONTAINS
         ! OUTPUTS: z - the value of the function at that point
         REAL(DP), DIMENSION(:), INTENT(IN) :: point
         REAL(DP), DIMENSION(size(point)) :: z
-        REAL(DP) :: x,alpha
+        REAL(DP) :: x
 
         x=point(1)
-        alpha=point(2)
         z = x**(-alpha)
+!        z = x**(-10.0D0)
 
     END FUNCTION Du3
 
