@@ -376,6 +376,15 @@ contains
             pointToEvalTemp(1)=pointToEval
             result2=func(pointToEvalTemp)
             err(i) = abs((result2-result1)/result2)
+            if(ISNAN(err(i))) then
+                flush(6)
+                print *,grid
+                print *,splinePoints
+                print *,funcAtGrid
+                print *,pointToEval,result1,result2,dFx1,dFxn
+                flush(6)
+                stop 0
+            end if
         end do
 
         z=maxval(err)
@@ -433,6 +442,14 @@ contains
             END IF
             x=((xmax-xmin)/(c-1))*(c**x)-((xmax-c*xmin)/(c-1))
         END IF
+
+        !don't want two points being the same
+        do i=1,n-1
+            if(x(n+1-i) .le. x((n+1)-(i+1))) then
+                x((n+1)-(i+1))=x(n+1-i)-epsilon(1.0D0)
+            endif
+        end do
+
     END SUBROUTINE sub_grid_generation
 
 END MODULE splineParams
@@ -664,12 +681,12 @@ program q2
     print *,"------------------------------"
     CALL q2a(func3, Dfunc3)
 
-    alpha=10.0D0
+    alpha=5.0D0
     do i=1,numEvalPoints
         pointsToEvaluate(i)=0.005*(i)
     end do
     print *,"Gamma                           Max Error"
-    print *, q2b(func3,Dfunc3,100,pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.00000000001D0)
+    print *, q2b(func3,Dfunc3,150,pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.0000000001D0)
 
 CONTAINS
 
