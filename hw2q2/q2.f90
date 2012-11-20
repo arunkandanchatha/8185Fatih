@@ -629,6 +629,8 @@ contains
         REAL(DP), DIMENSION(:), INTENT(IN) :: pointsToEvaluate
         REAL(DP), DIMENSION(2) :: y
 
+        !Note, when solving, need to make sure we don't have two points in the grid
+        !that are too close together. Put a fix in grid_gen to avoid this.
         y=iterateMin(func1,Dfunc1,numSteps,pointsToEvaluate,a_min,a_max,tol)
 
     END FUNCTION q2b
@@ -654,6 +656,7 @@ program q2
     INTEGER(I4B), PARAMETER :: numEvalPoints=41
     REAL(DP), DIMENSION(numEvalPoints) :: pointsToEvaluate
     INTEGER(I4B) :: i
+    INTEGER(I4B), DIMENSION(10) :: gridPoints = (/ 50,100,150,200,250,500,1000,2500,5000,10000/)
 
     func1 => u1
     func2 => u2
@@ -681,13 +684,14 @@ program q2
     print *,"------------------------------"
     CALL q2a(func3, Dfunc3)
 
-    alpha=5.0D0
+    alpha=10.0D0
     do i=1,numEvalPoints
         pointsToEvaluate(i)=0.005*(i)
     end do
-    print *,"Gamma                           Max Error"
-    print *, q2b(func3,Dfunc3,150,pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.0000000001D0)
-
+    print *,"Grid Points          Gamma                    Max Error"
+    do i=1,10
+        print *, gridPoints(i),q2b(func3,Dfunc3,gridPoints(i),pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.0000000001D0)
+    end do
 CONTAINS
 
     !-----------------
