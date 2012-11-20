@@ -655,8 +655,10 @@ program q2
     REAL(DP) :: alpha
     INTEGER(I4B), PARAMETER :: numEvalPoints=41
     REAL(DP), DIMENSION(numEvalPoints) :: pointsToEvaluate
-    INTEGER(I4B) :: i
+    INTEGER(I4B) :: i,j
     INTEGER(I4B), DIMENSION(10) :: gridPoints = (/ 50,100,150,200,250,500,1000,2500,5000,10000/)
+    REAL(DP), DIMENSION(3) :: alphas = (/2.0,5.0,10.0/)
+    REAL(DP), DIMENSION(3,10,2) :: results
 
     func1 => u1
     func2 => u2
@@ -684,14 +686,19 @@ program q2
     print *,"------------------------------"
     CALL q2a(func3, Dfunc3)
 
-    alpha=10.0D0
+
     do i=1,numEvalPoints
-        pointsToEvaluate(i)=0.005*(i)
+            pointsToEvaluate(i)=0.005*(i)
     end do
-    print *,"Grid Points          Gamma                    Max Error"
-    do i=1,10
-        print *, gridPoints(i),q2b(func3,Dfunc3,gridPoints(i),pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.0000000001D0)
+    do j=1,3
+        alpha=alphas(j)
+        print *,"alpha                    Grid Points          Gamma                    Max Error"
+        do i=1,10
+            results(j,i,:)=q2b(func3,Dfunc3,gridPoints(i),pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.0000000001D0)
+            print *,alpha,gridPoints(i),results(j,i,1),results(j,i,2)
+        end do
     end do
+
 CONTAINS
 
     !-----------------
