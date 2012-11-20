@@ -174,11 +174,315 @@ contains
 
         z=fBase(1)+slope*(evalPoint-baseGrid(1))
     END FUNCTION linear
+
+        SUBROUTINE amoeba(p,y,ftol,func,iter)
+        USE nrtype; USE nrutil, ONLY : assert_eq,imaxloc,iminloc,nrerror,swap
+        IMPLICIT NONE
+        INTEGER(I4B), INTENT(OUT) :: iter
+        REAL(dp), INTENT(IN) :: ftol
+        REAL(dp), DIMENSION(:), INTENT(INOUT) :: y   ! "func" evaluated at the n vertices provided in "p"
+        REAL(dp), DIMENSION(:,:), INTENT(INOUT) :: p ! vertices. If we have n vertices, then we must be
+                                                         ! in n-1 dimensional space (we need one extra vertex
+                                                         ! than dimensions. For each row, the n-1 vector
+                                                         ! specifies the vertex
+        PROCEDURE(template_function), POINTER, INTENT(in) :: func
+        INTEGER(I4B), PARAMETER :: ITMAX=5000
+        REAL(dp), PARAMETER :: TINY=1.0e-10
+        INTEGER(I4B) :: ihi,ndim
+        REAL(dp), DIMENSION(size(p,2)) :: psum
+        call amoeba_private
+    CONTAINS
+        !BL
+        SUBROUTINE amoeba_private
+            IMPLICIT NONE
+            INTEGER(I4B) :: i,ilo,inhi
+            REAL(dp) :: rtol,ysave,ytry,ytmp
+
+            ndim=assert_eq(size(p,2),size(p,1)-1,size(y)-1,'amoeba')
+            iter=0
+            psum(:)=sum(p(:,:),dim=1)
+            do
+                ilo=iminloc(y(:))
+                ihi=imaxloc(y(:))
+                ytmp=y(ihi)
+                y(ihi)=y(ilo)
+                inhi=imaxloc(y(:))
+                y(ihi)=ytmp
+                rtol=2.0_dp*abs(y(ihi)-y(ilo))/(abs(y(ihi))+abs(y(ilo))+TINY)
+                if (rtol < ftol) then
+                    call swap(y(1),y(ilo))
+                    call swap(p(1,:),p(ilo,:))
+                    RETURN
+                end if
+                if (iter >= ITMAX) call nrerror('ITMAX exceeded in amoeba')
+                ytry=amotry(-1.0_dp)
+                iter=iter+1
+                if (ytry <= y(ilo)) then
+                    ytry=amotry(2.0_dp)
+                    iter=iter+1
+                else if (ytry >= y(inhi)) then
+                    ysave=y(ihi)
+                    ytry=amotry(0.5_dp)
+                    iter=iter+1
+                    if (ytry >= ysave) then
+                        p(:,:)=0.5_dp*(p(:,:)+spread(p(ilo,:),1,size(p,1)))
+                        do i=1,ndim+1
+                            if (i /= ilo) y(i)=func(p(i,:))
+                        end do
+                        iter=iter+ndim
+                        psum(:)=sum(p(:,:),dim=1)
+                    end if
+                end if
+            end do
+        END SUBROUTINE amoeba_private
+        !BL
+        FUNCTION amotry(fac)
+            IMPLICIT NONE
+            REAL(dp), INTENT(IN) :: fac
+            REAL(dp) :: amotry
+            REAL(dp) :: fac1,fac2,ytry
+            REAL(dp), DIMENSION(size(p,2)) :: ptry
+            fac1=(1.0_dp-fac)/ndim
+            fac2=fac1-fac
+            ptry(:)=psum(:)*fac1-p(ihi,:)*fac2
+            ytry=func(ptry)
+            if (ytry < y(ihi)) then
+                y(ihi)=ytry
+                psum(:)=psum(:)-p(ihi,:)+ptry(:)
+                p(ihi,:)=ptry(:)
+            end if
+            amotry=ytry
+        END FUNCTION amotry
+    END SUBROUTINE amoeba
+
+        SUBROUTINE sobseq(x,init)
+        USE nrtype; USE nrutil, ONLY : nrerror
+        IMPLICIT NONE
+        REAL(dp), DIMENSION(2), INTENT(OUT) :: x
+        INTEGER(I4B), OPTIONAL, INTENT(IN) :: init
+        INTEGER(I4B), PARAMETER :: MAXBIT=30,MAXDIM=6
+        REAL(dp), SAVE :: fac
+        INTEGER(I4B) :: i,im,ipp,j,k,l
+        INTEGER(I4B), DIMENSION(:,:), ALLOCATABLE:: iu
+        INTEGER(I4B), SAVE :: in
+        INTEGER(I4B), DIMENSION(MAXDIM), SAVE :: ip,ix,mdeg
+        INTEGER(I4B), DIMENSION(MAXDIM*MAXBIT), SAVE :: iv
+        DATA ip /0,1,1,2,1,4/, mdeg /1,2,3,3,4,4/, ix /6*0/
+        DATA iv /6*1,3,1,3,3,1,1,5,7,7,3,3,5,15,11,5,15,13,9,156*0/
+        if (present(init)) then
+            ix=0
+            in=0
+            if (iv(1) /= 1) RETURN
+            fac=1.0_dp/2.0_dp**MAXBIT
+            allocate(iu(MAXDIM,MAXBIT))
+            iu=reshape(iv,shape(iu))
+            do k=1,MAXDIM
+                do j=1,mdeg(k)
+                    iu(k,j)=iu(k,j)*2**(MAXBIT-j)
+                end do
+                do j=mdeg(k)+1,MAXBIT
+                    ipp=ip(k)
+                    i=iu(k,j-mdeg(k))
+                    i=ieor(i,i/2**mdeg(k))
+                    do l=mdeg(k)-1,1,-1
+                        if (btest(ipp,0)) i=ieor(i,iu(k,j-l))
+                        ipp=ipp/2
+                    end do
+                    iu(k,j)=i
+                end do
+            end do
+            iv=reshape(iu,shape(iv))
+            deallocate(iu)
+        else
+            im=in
+            do j=1,MAXBIT
+                if (.not. btest(im,0)) exit
+                im=im/2
+            end do
+            if (j > MAXBIT) call nrerror('MAXBIT too small in sobseq')
+            im=(j-1)*MAXDIM
+            j=min(size(x),MAXDIM)
+            ix(1:j)=ieor(ix(1:j),iv(1+im:j+im))
+            x(1:j)=ix(1:j)*fac
+            in=in+1
+        end if
+    END SUBROUTINE sobseq
+
 end module nr
+
+MODULE splineParams
+    use nrtype
+    use nr
+    implicit none
+
+        PROCEDURE(template_function), SAVE, POINTER :: func
+        PROCEDURE(template_derivative), SAVE, POINTER :: Dfunc
+        INTEGER, SAVE :: steps
+        REAL(DP), SAVE :: g_min, g_max
+        REAL(DP), ALLOCATABLE, DIMENSION(:) :: evaluationPoints
+
+contains
+    !-------------------------------------
+    SUBROUTINE splineInit(func1,Dfunc1,numSteps,pointsToEvaluate,a_min,a_max)
+    !-------------------------------------
+        PROCEDURE(template_function), POINTER, INTENT(in) :: func1
+        PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
+        INTEGER, INTENT(IN) :: numSteps
+        REAL(DP), INTENT(IN) :: a_min, a_max
+        REAL(DP), DIMENSION(:), INTENT(IN) :: pointsToEvaluate
+
+        func => func1
+        Dfunc => Dfunc1
+        steps = numSteps
+        g_min = a_min
+        g_max = a_max
+        allocate(evaluationPoints(size(pointsToEvaluate)))
+        evaluationPoints = pointsToEvaluate
+    END SUBROUTINE splineInit
+
+    !-------------------------------------
+    SUBROUTINE splineDestroy()
+    !-------------------------------------
+        deallocate(evaluationPoints)
+    end SUBROUTINE splineDestroy
+
+
+    !-------------------------------------
+    FUNCTION splineErr(x) RESULT (z)
+    !-------------------------------------
+        REAL(DP), DIMENSION(:), INTENT(IN) :: x
+        REAL(DP) :: z
+        REAL(DP), DIMENSION(steps) :: grid, funcAtGrid, splinePoints
+        REAL(DP), DIMENSION(size(evaluationPoints)) :: err
+        REAL(DP), DIMENSION(1) :: pointToEvalTemp, dFx1, dFxn
+        REAL(DP) :: result1, result2, pointToEval
+        INTEGER(I4B) :: i
+
+        call sub_grid_generation(grid, g_min, g_max, x(1),1)
+
+        do i=1,steps
+            pointToEvalTemp(1)=grid(i)
+            funcAtGrid(i)=func(pointToEvalTemp)
+            if(i == 1)then
+                dFx1 = Dfunc(pointToEvalTemp)
+            else if (i==(steps)) then
+                dFxn = Dfunc(pointToEvalTemp)
+            end if
+        end do
+        call spline(grid,funcAtGrid,dFx1(1),dFxn(1),splinePoints)
+        do i=1,size(evaluationPoints)
+            pointToEval = evaluationPoints(i)
+            result1=splint(grid,funcAtGrid,splinePoints,pointToEval)
+            pointToEvalTemp(1)=pointToEval
+            result2=func(pointToEvalTemp)
+            err(i) = abs((result2-result1)/result2)
+        end do
+
+        z=maxval(err)
+    END FUNCTION splineErr
+
+    SUBROUTINE sub_grid_generation(x,xcentre,xbounds,s, gentype)
+        ! Purpose: Generate grid x on [xcentre*(1-xbounds),xcentre*(1+xbounds)] with "n" steps using spacing parameter s set as follows:
+        ! s=1       linear spacing
+        ! s>1       left skewed grid spacing with power s
+        ! 0<s<1     right skewed grid spacing with power s
+        ! s<0       geometric spacing with distances changing by a factor -s^(1/(n-1)), (>1 grow, <1 shrink)
+        ! s=-1      logarithmic spacing with distances changing by a factor (xmax-xmin+1)^(1/(n-1))
+        ! s=0       logarithmic spacing with distances changing by a factor (xmax/xmin)^(1/(n-1)), only if xmax,xmin>0
+        !
+        ! INPUTS: Inputs depend on gentype. If gentype is missing:
+        !               xcentre - The centre of the grid
+        !               xbounds - how far away from the centre the bounds go.
+        !               s - skewness of grid - see above
+        !         If gentype is provided and equals 1
+        !               xcentre - The min point of the grid
+        !               xbounds - The max point of the grid
+        !               s - skewness of grid - see above
+        ! OUTPUT: x - the generated grid, size n
+
+        IMPLICIT NONE
+        REAL(DP), DIMENSION(:), INTENT(OUT) :: x
+        REAL(DP), INTENT(IN) :: xcentre,xbounds, s
+        INTEGER, OPTIONAL, INTENT(IN) :: gentype
+        REAL(DP) :: c ! growth rate of grid subintervals for logarithmic spacing
+        REAL(DP) :: xmax, xmin
+        INTEGER :: n,i
+
+        if(present(gentype)) then
+            if(gentype==1) then
+                xmin=xcentre
+                xmax=xbounds
+            else
+                PRINT *, 'grid_generation: unsuported gentype: ',gentype
+                stop 0
+            endif
+        else
+            xmax=xcentre*(1+xbounds);
+            xmin=xcentre*(1-xbounds);
+        endif
+        n=size(x)
+
+        FORALL(i=1:n) x(i)=(i-1)/real(n-1,DP)
+        IF (s>0.0_DP) THEN
+            x=x**s*(xmax-xmin)+xmin
+        ELSE
+            IF (s==-1.0_DP) THEN
+                c=xmax-xmin+1
+            ELSE
+                c=-s
+            END IF
+            x=((xmax-xmin)/(c-1))*(c**x)-((xmax-c*xmin)/(c-1))
+        END IF
+    END SUBROUTINE sub_grid_generation
+
+END MODULE splineParams
+
+MODULE hwutil
+    use nrtype
+    use splineParams
+contains
+
+
+    FUNCTION iterateMin(func,dfunc,numSteps,pointsToEvaluate,a_min,a_max,tol) RESULT(y)
+        !-------------------------------------
+
+        !use nelder-meade
+        !
+        ! INPUTS:
+        !   1) func - the function we are trying to find the min value of
+        !   2) startPoint - the co-ordinates of the starting point simplex
+        !   3) startVals - the value of the function at the starting points
+        PROCEDURE(template_function), POINTER, INTENT(in) :: func
+        PROCEDURE(template_derivative), POINTER, INTENT(in) :: dfunc
+        INTEGER(I4B), INTENT(IN) :: numSteps
+        REAL(DP), INTENT(IN) :: a_min, a_max, tol
+        REAL(DP), DIMENSION(:), INTENT(IN) :: pointsToEvaluate
+        REAL(DP), DIMENSION(2) :: y
+
+        REAL(DP), DIMENSION(2,1) :: startPoints
+        REAL(DP), DIMENSION(2) :: startVals
+        PROCEDURE(template_function), POINTER :: splinePointer
+
+        splinePointer => splineErr
+        call splineInit(func,dfunc,numSteps,pointsToEvaluate,a_min,a_max)
+        startPoints(1,1) = 1.0
+        startPoints(2,1)= 5.0
+        startVals(1)=splineErr(startPoints(1,:))
+        startVals(2)=splineErr(startPoints(2,:))
+
+        CALL amoeba(startPoints,startVals, tol,splinePointer,iter)
+
+        y(1)=startPoints(1,1)
+        y(2)=splineErr(startPoints(1,:))
+        call splineDestroy()
+    END FUNCTION iterateMin
+
+END MODULE hwutil
 
 MODULE  hmwk2
     use nrtype
     use nr
+    use hwutil
     implicit none
     INTEGER(I8B), parameter :: NUM_ITER=100000000
 
@@ -201,7 +505,7 @@ contains
 
     !-------------------------------------
     SUBROUTINE q2a(func1,Dfunc1)
-        !-------------------------------------
+    !-------------------------------------
         PROCEDURE(template_function), POINTER, INTENT(in) :: func1
         PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
 
@@ -297,6 +601,29 @@ contains
         print *," "
 
     END SUBROUTINE q2a
+
+    !-------------------------------------
+    FUNCTION q2b(func1,Dfunc1,numSteps,pointsToEvaluate,a_min,a_max,tol) RESULT (y)
+    !-------------------------------------
+        PROCEDURE(template_function), POINTER, INTENT(in) :: func1
+        PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
+        INTEGER, INTENT(IN) :: numSteps
+        REAL(DP), INTENT(IN) :: a_min, a_max,tol
+        REAL(DP), DIMENSION(:), INTENT(IN) :: pointsToEvaluate
+        REAL(DP), DIMENSION(2) :: y
+
+        y=iterateMin(func1,Dfunc1,numSteps,pointsToEvaluate,a_min,a_max,tol)
+
+    END FUNCTION q2b
+
+    !-------------------------------------
+    SUBROUTINE q2c(func1,Dfunc1)
+    !-------------------------------------
+        PROCEDURE(template_function), POINTER, INTENT(in) :: func1
+        PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
+
+    END SUBROUTINE q2c
+
 END MODULE hmwk2
 
 program q2
@@ -307,6 +634,9 @@ program q2
     PROCEDURE(template_function), POINTER :: func1, func2, func3
     PROCEDURE(template_derivative), POINTER :: Dfunc1, Dfunc2, Dfunc3
     REAL(DP) :: alpha
+    INTEGER(I4B), PARAMETER :: numEvalPoints=41
+    REAL(DP), DIMENSION(numEvalPoints) :: pointsToEvaluate
+    INTEGER(I4B) :: i
 
     func1 => u1
     func2 => u2
@@ -333,6 +663,14 @@ program q2
     print *, "alpha: ",alpha
     print *,"------------------------------"
     CALL q2a(func3, Dfunc3)
+
+    alpha=10.0D0
+    do i=1,numEvalPoints
+        pointsToEvaluate(i)=0.005*(i)
+    end do
+    print *,"Gamma                           Max Error"
+    print *, q2b(func3,Dfunc3,100,pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.00000000001D0)
+
 CONTAINS
 
     !-----------------
@@ -342,7 +680,8 @@ CONTAINS
         ! INPUTS: point - the value at which we are evaluating the function
         ! OUTPUTS: z - the value of the function at that point
         REAL(DP), DIMENSION(:), INTENT(IN) :: point
-        REAL(DP) :: x,z
+        REAL(DP) :: z
+        REAL(DP) :: x
         x=point(1)
         z = log(x)
     END FUNCTION u1
@@ -354,7 +693,8 @@ CONTAINS
         ! INPUTS: point - the value at which we are evaluating the function
         ! OUTPUTS: z - the value of the function at that point
         REAL(DP), DIMENSION(:), INTENT(IN) :: point
-        REAL(DP) :: x,z
+        REAL(DP) :: z
+        REAL(DP) :: x
 
         x=point(1)
         z = sqrt(x)
@@ -373,7 +713,6 @@ CONTAINS
 
         x=point(1)
         z = x**(1-alpha)/(1-alpha)
-!        z = x**(1-10.0D0)/(1-10.0D0)
 
     END FUNCTION u3
 
@@ -416,7 +755,6 @@ CONTAINS
 
         x=point(1)
         z = x**(-alpha)
-!        z = x**(-10.0D0)
 
     END FUNCTION Du3
 
