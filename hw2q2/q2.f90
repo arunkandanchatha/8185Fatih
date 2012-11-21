@@ -785,13 +785,13 @@ program q2
     print *, "CRRA function"
     print *,"------------------------------"
     do i=1,numEvalPoints
-        pointsToEvaluate(i)=0.005+.001*(i)
+        pointsToEvaluate(i)=0.005+.005*(i)
     end do
     print *,"alpha                    Grid Points          Gamma                    Max Error"
     do j=1,3
         alpha=alphas(j)
         do i=1,10
-            results(j,i,:)=q2b(func3,Dfunc3,gridPoints(i),pointsToEvaluate,.05D0,.05D0*(numEvalPoints+1),.0000000001D0)
+            results(j,i,:)=q2b(func3,Dfunc3,gridPoints(i),pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.0000000001D0)
             print *,alpha,gridPoints(i),results(j,i,1),results(j,i,2)
         end do
     end do
