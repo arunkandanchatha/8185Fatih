@@ -29,31 +29,31 @@ contains
     END FUNCTION chebft
 
     FUNCTION chebev(a,b,c,x)
-        ! Called after using chebft.
-        ! INPUTS: a,b - bounds of the interval (must be same as used
-        !               in chebft call)
-        !         c - the first m (<n) coefficients returned from
-        !             chebft
-        !         x - the point where we want to estimate the value
-    USE nrtype; USE nrutil, ONLY : nrerror
-    IMPLICIT NONE
-    REAL(dp), INTENT(IN) :: a,b,x
-    REAL(dp), DIMENSION(:), INTENT(IN) :: c
-    REAL(dp) :: chebev
-    INTEGER(I4B) :: j,m
-    REAL(dp) :: d,dd,sv,y,y2
-    if ((x-a)*(x-b) > 0.0) call nrerror('x not in range in chebev')
-    m=size(c)
-    d=0.0
-    dd=0.0
-    y=(2.0_dp*x-a-b)/(b-a)
-    y2=2.0_dp*y
-    do j=m,2,-1
-        sv=d
-        d=y2*d-dd+c(j)
-        dd=sv
-    end do
-    chebev=y*d-dd+0.5_dp*c(1)
+            ! Called after using chebft.
+            ! INPUTS: a,b - bounds of the interval (must be same as used
+            !               in chebft call)
+            !         c - the first m (<n) coefficients returned from
+            !             chebft
+            !         x - the point where we want to estimate the value
+        USE nrtype; USE nrutil, ONLY : nrerror
+        IMPLICIT NONE
+        REAL(dp), INTENT(IN) :: a,b,x
+        REAL(dp), DIMENSION(:), INTENT(IN) :: c
+        REAL(dp) :: chebev
+        INTEGER(I4B) :: j,m
+        REAL(dp) :: d,dd,sv,y,y2
+        if ((x-a)*(x-b) > 0.0) call nrerror('x not in range in chebev')
+        m=size(c)
+        d=0.0
+        dd=0.0
+        y=(2.0_dp*x-a-b)/(b-a)
+        y2=2.0_dp*y
+        do j=m,2,-1
+            sv=d
+            d=y2*d-dd+c(j)
+            dd=sv
+        end do
+        chebev=y*d-dd+0.5_dp*c(1)
     END FUNCTION chebev
 
     SUBROUTINE tridag(a,b,c,r,u)
@@ -165,6 +165,16 @@ contains
         indexInGridTemp=minloc(abs(gridPoints-evalPoint))
         indexInGrid = indexInGridTemp(1)
 
+        ! if we are past the max grid point, use the left derivative
+        if( (indexInGrid==size(gridPoints)) .and. (evalPoint>gridPoints(indexInGrid)) )then
+            indexInGrid=indexInGrid-1
+        endif
+
+        ! if we are before the min grid point, use the right derivative
+        if( (indexInGrid==1) .and. (evalPoint<gridPoints(indexInGrid)) )then
+            indexInGrid=indexInGrid+1
+        endif
+
         baseGrid(1)=gridPoints(indexInGrid)
         nextGrid(1)=gridPoints(indexInGrid+floor(sign(1.0D0,evalPoint-baseGrid(1))))
 
@@ -175,7 +185,7 @@ contains
         z=fBase(1)+slope*(evalPoint-baseGrid(1))
     END FUNCTION linear
 
-        SUBROUTINE amoeba(p,y,ftol,func,iter)
+    SUBROUTINE amoeba(p,y,ftol,func,iter)
         USE nrtype; USE nrutil, ONLY : assert_eq,imaxloc,iminloc,nrerror,swap
         IMPLICIT NONE
         INTEGER(I4B), INTENT(OUT) :: iter
@@ -255,7 +265,7 @@ contains
         END FUNCTION amotry
     END SUBROUTINE amoeba
 
-        SUBROUTINE sobseq(x,init)
+    SUBROUTINE sobseq(x,init)
         USE nrtype; USE nrutil, ONLY : nrerror
         IMPLICIT NONE
         REAL(dp), DIMENSION(2), INTENT(OUT) :: x
@@ -315,16 +325,16 @@ MODULE splineParams
     use nr
     implicit none
 
-        PROCEDURE(template_function), SAVE, POINTER :: func
-        PROCEDURE(template_derivative), SAVE, POINTER :: Dfunc
-        INTEGER, SAVE :: steps
-        REAL(DP), SAVE :: g_min, g_max
-        REAL(DP), ALLOCATABLE, DIMENSION(:) :: evaluationPoints
+    PROCEDURE(template_function), SAVE, POINTER :: func
+    PROCEDURE(template_derivative), SAVE, POINTER :: Dfunc
+    INTEGER, SAVE :: steps
+    REAL(DP), SAVE :: g_min, g_max
+    REAL(DP), ALLOCATABLE, DIMENSION(:) :: evaluationPoints
 
 contains
     !-------------------------------------
     SUBROUTINE splineInit(func1,Dfunc1,numSteps,pointsToEvaluate,a_min,a_max)
-    !-------------------------------------
+        !-------------------------------------
         PROCEDURE(template_function), POINTER, INTENT(in) :: func1
         PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
         INTEGER, INTENT(IN) :: numSteps
@@ -342,14 +352,14 @@ contains
 
     !-------------------------------------
     SUBROUTINE splineDestroy()
-    !-------------------------------------
+        !-------------------------------------
         deallocate(evaluationPoints)
     end SUBROUTINE splineDestroy
 
 
     !-------------------------------------
     FUNCTION splineErr(x) RESULT (z)
-    !-------------------------------------
+        !-------------------------------------
         REAL(DP), DIMENSION(:), INTENT(IN) :: x
         REAL(DP) :: z
         REAL(DP), DIMENSION(steps) :: grid, funcAtGrid, splinePoints
@@ -522,11 +532,11 @@ contains
 
     !-------------------------------------
     SUBROUTINE q2a(func1,Dfunc1)
-    !-------------------------------------
+        !-------------------------------------
         PROCEDURE(template_function), POINTER, INTENT(in) :: func1
         PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
 
-        INTEGER, PARAMETER :: numSteps=100, numSteps2=200, orderFuncCheb=30, orderFuncCheb2=50
+        INTEGER, PARAMETER :: numSteps=100, numSteps2=200, orderFuncCheb=100, orderFuncCheb2=200
         REAL(DP), DIMENSION(numSteps+1) :: gridPoints, funcAtGrid, splinePoints
         REAL(DP), DIMENSION(numSteps2+1) :: gridPoints2, funcAtGrid2, splinePoints2
         REAL(DP), DIMENSION(orderFuncCheb) :: chebCoeff
@@ -547,7 +557,7 @@ contains
 
         !note: linear only requires two calls to the utility function, regardless
         !      of the number of grid points. So the finer, the better. (Assuming
-        !      we only want to make on comparison). If we want to make many
+        !      we only want to make one comparison). If we want to make many
         !      interpolations, then it is linear in the number, as we could simply
         !      evaluate on all grid points.
         print *,"Linear interpolation"
@@ -621,7 +631,7 @@ contains
 
     !-------------------------------------
     FUNCTION q2b(func1,Dfunc1,numSteps,pointsToEvaluate,a_min,a_max,tol) RESULT (y)
-    !-------------------------------------
+        !-------------------------------------
         PROCEDURE(template_function), POINTER, INTENT(in) :: func1
         PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
         INTEGER, INTENT(IN) :: numSteps
@@ -637,9 +647,83 @@ contains
 
     !-------------------------------------
     SUBROUTINE q2c(func1,Dfunc1)
-    !-------------------------------------
+        !-------------------------------------
         PROCEDURE(template_function), POINTER, INTENT(in) :: func1
         PROCEDURE(template_derivative), POINTER, INTENT(in) :: Dfunc1
+
+        INTEGER, PARAMETER :: numSteps=100, numSteps2=200, orderFuncCheb=100, orderFuncCheb2=200
+        REAL(DP), DIMENSION(numSteps+1) :: gridPoints, funcAtGrid, splinePoints
+        REAL(DP), DIMENSION(numSteps2+1) :: gridPoints2, funcAtGrid2, splinePoints2
+        REAL(DP), DIMENSION(orderFuncCheb) :: chebCoeff
+        REAL(DP), DIMENSION(orderFuncCheb2) :: chebCoeff2
+        REAL(DP) :: result1, result11, result2, pointToEval
+        REAL(DP), DIMENSION(1) :: pointToEvalTemp
+        REAL(DP), DIMENSION(1) :: dFx1, dFxn, dFx12, dFxn2
+        INTEGER :: i
+        REAL(DP), DIMENSION(4) :: evalPoints = (/0.02D0,2.1D0,2.5D0,4.0D0/)
+
+        do i=1,numSteps+1
+            gridPoints(i)=.05D0+(2.0D0-0.05)/numSteps*(i-1)
+        end do
+        do i=1,numSteps2+1
+            gridPoints2(i)=.05D0+(2.0D0-0.05)/numSteps2*(i-1)
+        end do
+
+        !minimizing evaluations of function.
+
+        !note: linear only requires two calls to the utility function, regardless
+        !      of the number of grid points. So the finer, the better. (Assuming
+        !      we only want to make one comparison). If we want to make many
+        !      interpolations, then it is linear in the number, as we could simply
+        !      evaluate on all grid points.
+        print *,"Linear interpolation"
+        print *,"Point                  ",numSteps,"          ",numSteps2
+        do i=1,size(evalPoints)
+            pointToEval = evalPoints(i)
+            result1=linear(func1,pointToEval,gridPoints)
+            result11=linear(func1,pointToEval,gridPoints2)
+            pointToEvalTemp(1)=pointToEval
+            result2=func1(pointToEvalTemp)
+            print *, pointToEval,abs((result2-result1)/result2),abs((result2-result11)/result2)
+        end do
+        print *," "
+
+        !note: spline requires as many calls to the utility function, as
+        !      the number of grid points. This is the same as linear, if
+        !      we are making a lot of interpolations. More if we are making
+        !      just one
+        !      It also requires two calls for the function derivative
+        print *,"Cubic Spline interpolation"
+        do i=1,numSteps+1
+            pointToEvalTemp(1)=gridPoints(i)
+            funcAtGrid(i)=func1(pointToEvalTemp)
+            if(i == 1)then
+                dFx1 = Dfunc1(pointToEvalTemp)
+            else if (i==(numSteps+1)) then
+                dFxn = Dfunc1(pointToEvalTemp)
+            end if
+        end do
+        do i=1,numSteps2+1
+            pointToEvalTemp(1)=gridPoints2(i)
+            funcAtGrid2(i)=func1(pointToEvalTemp)
+            if(i == 1)then
+                dFx12 = Dfunc1(pointToEvalTemp)
+            else if (i==(numSteps2+1)) then
+                dFxn2 = Dfunc1(pointToEvalTemp)
+            end if
+        end do
+        call spline(gridPoints,funcAtGrid,dFx1(1),dFxn(1),splinePoints)
+        call spline(gridPoints2,funcAtGrid2,dFx12(1),dFxn2(1),splinePoints2)
+        print *,"Point                  ",numSteps,"          ",numSteps2
+        do i=1,size(evalPoints)
+            pointToEval = evalPoints(i)
+            result1=splint(gridPoints,funcAtGrid,splinePoints,pointToEval)
+            result11=splint(gridPoints2,funcAtGrid2,splinePoints2,pointToEval)
+            pointToEvalTemp(1)=pointToEval
+            result2=func1(pointToEvalTemp)
+            print *, pointToEval,abs((result2-result1)/result2),abs((result2-result11)/result2)
+        end do
+        print *," "
 
     END SUBROUTINE q2c
 
@@ -668,36 +752,76 @@ program q2
     Dfunc2 => Du2
     Dfunc3 => Du3
 
+    print *,"========================================"
+    print *,"Question a"
+    print *,"========================================"
+    print *, "      log function"
+    print *,"------------------------------"
     CALL q2a(func1, Dfunc1)
+    print *, "sqrt function"
+    print *,"------------------------------"
     CALL q2a(func2, Dfunc2)
     alpha=2.0D0
+    print *, "CRRA function"
     print *,"------------------------------"
     print *, "alpha: ",alpha
-    print *,"------------------------------"
+    print *,"*******************************"
     CALL q2a(func3, Dfunc3)
     alpha=5.0D0
-    print *,"------------------------------"
+    print *,"*******************************"
     print *, "alpha: ",alpha
-    print *,"------------------------------"
+    print *,"*******************************"
     CALL q2a(func3, Dfunc3)
     alpha=10.0D0
-    print *,"------------------------------"
+    print *,"*******************************"
     print *, "alpha: ",alpha
-    print *,"------------------------------"
+    print *,"*******************************"
     CALL q2a(func3, Dfunc3)
 
-
+    print *," "
+    print *,"========================================"
+    print *,"Question b"
+    print *,"========================================"
+    print *, "CRRA function"
+    print *,"------------------------------"
     do i=1,numEvalPoints
-            pointsToEvaluate(i)=0.005*(i)
+        pointsToEvaluate(i)=0.005+.001*(i)
     end do
+    print *,"alpha                    Grid Points          Gamma                    Max Error"
     do j=1,3
         alpha=alphas(j)
-        print *,"alpha                    Grid Points          Gamma                    Max Error"
         do i=1,10
-            results(j,i,:)=q2b(func3,Dfunc3,gridPoints(i),pointsToEvaluate,.001D0,.05D0*(numEvalPoints+1),.0000000001D0)
+            results(j,i,:)=q2b(func3,Dfunc3,gridPoints(i),pointsToEvaluate,.05D0,.05D0*(numEvalPoints+1),.0000000001D0)
             print *,alpha,gridPoints(i),results(j,i,1),results(j,i,2)
         end do
     end do
+
+    print *," "
+    print *,"========================================"
+    print *,"Question c"
+    print *,"========================================"
+    print *, "log function"
+    print *,"------------------------------"
+    CALL q2c(func1, Dfunc1)
+    print *, "sqrt function"
+    print *,"------------------------------"
+    CALL q2c(func2, Dfunc2)
+    alpha=2.0D0
+    print *, "CRRA function"
+    print *,"------------------------------"
+    print *, "alpha: ",alpha
+    print *,"*******************************"
+    CALL q2c(func3, Dfunc3)
+    alpha=5.0D0
+    print *,"*******************************"
+    print *, "alpha: ",alpha
+    print *,"*******************************"
+    CALL q2c(func3, Dfunc3)
+    alpha=10.0D0
+    print *,"*******************************"
+    print *, "alpha: ",alpha
+    print *,"*******************************"
+    CALL q2c(func3, Dfunc3)
 
 CONTAINS
 
