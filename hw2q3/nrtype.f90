@@ -34,7 +34,7 @@ MODULE nrtype
             ! the function we are trying to minimize
             ! INPUTS: point - the value at which we are evaluating the function
             ! OUTPUTS: z - the value of the function at that point
-            REAL(KIND=8), DIMENSION(:), INTENT(IN) :: point
+            REAL(KIND=8), INTENT(IN) :: point
             REAL(KIND=8) :: z
         END FUNCTION template_function
 

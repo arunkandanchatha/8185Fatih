@@ -95,87 +95,96 @@ contains
         call tridag(a(2:n),b(1:n),c(1:n-1),r(1:n),y2(1:n))
     END SUBROUTINE spline
 
-    SUBROUTINE amoeba(p,y,ftol,func,iter)
-        USE nrtype; USE nrutil, ONLY : assert_eq,imaxloc,iminloc,nrerror,swap
+    FUNCTION brent(ax,bx,cx,func,tol,xmin)
+        USE nrtype; USE nrutil, ONLY : nrerror
         IMPLICIT NONE
-        INTEGER(I4B), INTENT(OUT) :: iter
-        REAL(dp), INTENT(IN) :: ftol
-        REAL(dp), DIMENSION(:), INTENT(INOUT) :: y   ! "func" evaluated at the n vertices provided in "p"
-        REAL(dp), DIMENSION(:,:), INTENT(INOUT) :: p ! vertices. If we have n vertices, then we must be
-                                                         ! in n-1 dimensional space (we need one extra vertex
-                                                         ! than dimensions. For each row, the n-1 vector
-                                                         ! specifies the vertex
-        PROCEDURE(template_function), POINTER, INTENT(in) :: func
-        INTEGER(I4B), PARAMETER :: ITMAX=50!00
-        REAL(dp), PARAMETER :: TINY=1.0e-10
-        INTEGER(I4B) :: ihi,ndim
-        REAL(dp), DIMENSION(size(p,2)) :: psum
-        call amoeba_private
+        REAL(dp), INTENT(IN) :: ax,bx,cx,tol
+        REAL(dp), INTENT(OUT) :: xmin
+        REAL(dp) :: brent
+        PROCEDURE(template_function), POINTER :: func
+        INTEGER(I4B), PARAMETER :: ITMAX=100
+        REAL(dp), PARAMETER :: CGOLD=0.3819660_dp,ZEPS=1.0e-3_dp*epsilon(ax)
+        INTEGER(I4B) :: iter
+        REAL(dp) :: a,b,d,e,etemp,fu,fv,fw,fx,p,q,r,tol1,tol2,u,v,w,x,xm
+        a=min(ax,cx)
+        b=max(ax,cx)
+        v=bx
+        w=v
+        x=v
+        e=0.0
+        fx=func(x)
+        fv=fx
+        fw=fx
+        do iter=1,ITMAX
+            xm=0.5_dp*(a+b)
+            tol1=tol*abs(x)+ZEPS
+            tol2=2.0_dp*tol1
+            if (abs(x-xm) <= (tol2-0.5_dp*(b-a))) then
+                xmin=x
+                brent=fx
+                RETURN
+            end if
+            if (abs(e) > tol1) then
+                r=(x-w)*(fx-fv)
+                q=(x-v)*(fx-fw)
+                p=(x-v)*q-(x-w)*r
+                q=2.0_dp*(q-r)
+                if (q > 0.0) p=-p
+                q=abs(q)
+                etemp=e
+                e=d
+                if (abs(p) >= abs(0.5_dp*q*etemp) .or. &
+                    p <= q*(a-x) .or. p >= q*(b-x)) then
+                    e=merge(a-x,b-x, x >= xm )
+                    d=CGOLD*e
+                else
+                    d=p/q
+                    u=x+d
+                    if (u-a < tol2 .or. b-u < tol2) d=sign(tol1,xm-x)
+                end if
+            else
+                e=merge(a-x,b-x, x >= xm )
+                d=CGOLD*e
+            end if
+            u=merge(x+d,x+sign(tol1,d), abs(d) >= tol1 )
+            fu=func(u)
+            if (fu <= fx) then
+                if (u >= x) then
+                    a=x
+                else
+                    b=x
+                end if
+                call shft(v,w,x,u)
+                call shft(fv,fw,fx,fu)
+            else
+                if (u < x) then
+                    a=u
+                else
+                    b=u
+                end if
+                if (fu <= fw .or. w == x) then
+                    v=w
+                    fv=fw
+                    w=u
+                    fw=fu
+                else if (fu <= fv .or. v == x .or. v == w) then
+                    v=u
+                    fv=fu
+                end if
+            end if
+        end do
+        call nrerror('brent: exceed maximum iterations')
     CONTAINS
         !BL
-        SUBROUTINE amoeba_private
-            IMPLICIT NONE
-            INTEGER(I4B) :: i,ilo,inhi
-            REAL(dp) :: rtol,ysave,ytry,ytmp
-
-            ndim=assert_eq(size(p,2),size(p,1)-1,size(y)-1,'amoeba')
-            iter=0
-            psum(:)=sum(p(:,:),dim=1)
-            do
-                ilo=iminloc(y(:))
-                ihi=imaxloc(y(:))
-                ytmp=y(ihi)
-                y(ihi)=y(ilo)
-                inhi=imaxloc(y(:))
-                y(ihi)=ytmp
-                rtol=2.0_dp*abs(y(ihi)-y(ilo))/(abs(y(ihi))+abs(y(ilo))+TINY)
-                if (rtol < ftol) then
-                    call swap(y(1),y(ilo))
-                    call swap(p(1,:),p(ilo,:))
-                    RETURN
-                end if
-                if (iter >= ITMAX) call nrerror('ITMAX exceeded in amoeba')
-                ytry=amotry(-1.0_dp)
-                iter=iter+1
-                if (ytry <= y(ilo)) then
-                    ytry=amotry(2.0_dp)
-                    iter=iter+1
-                else if (ytry >= y(inhi)) then
-                    ysave=y(ihi)
-                    ytry=amotry(0.5_dp)
-                    iter=iter+1
-                    if (ytry >= ysave) then
-                        p(:,:)=0.5_dp*(p(:,:)+spread(p(ilo,:),1,size(p,1)))
-                        do i=1,ndim+1
-                            if (i /= ilo) then
-                             y(i)=func(p(i,:))
-                            end if
-                        end do
-                        iter=iter+ndim
-                        psum(:)=sum(p(:,:),dim=1)
-                    end if
-                end if
-            end do
-        END SUBROUTINE amoeba_private
-        !BL
-        FUNCTION amotry(fac)
-            IMPLICIT NONE
-            REAL(dp), INTENT(IN) :: fac
-            REAL(dp) :: amotry
-            REAL(dp) :: fac1,fac2,ytry
-            REAL(dp), DIMENSION(size(p,2)) :: ptry
-            fac1=(1.0_dp-fac)/ndim
-            fac2=fac1-fac
-            ptry(:)=psum(:)*fac1-p(ihi,:)*fac2
-            ytry=func(ptry)
-            if (ytry < y(ihi)) then
-                y(ihi)=ytry
-                psum(:)=psum(:)-p(ihi,:)+ptry(:)
-                p(ihi,:)=ptry(:)
-            end if
-            amotry=ytry
-        END FUNCTION amotry
-    END SUBROUTINE amoeba
+        SUBROUTINE shft(a,b,c,d)
+            REAL(dp), INTENT(OUT) :: a
+            REAL(dp), INTENT(INOUT) :: b,c
+            REAL(dp), INTENT(IN) :: d
+            a=b
+            b=c
+            c=d
+        END SUBROUTINE shft
+    END FUNCTION brent
 
 end module nr
 
@@ -189,40 +198,36 @@ use nrtype
         REAL(DP), parameter :: bet=0.9D0
         REAL(DP), parameter :: cbar=0.0D0
         integer, parameter :: NUM_GRID_POINTS = 201
-        integer, parameter :: NUM_ITER = 100
+        integer, parameter :: NUM_ITER = 500
         integer, parameter :: NUM_POINTS=NUM_GRID_POINTS*NUM_ITER
 
-        REAL(DP), dimension(NUM_GRID_POINTS) :: k, k_tilde,splinePoints
+        REAL(DP), dimension(NUM_GRID_POINTS) :: k, splinePoints, RHS, PPF
         REAL(DP) :: mydel
-        REAL(DP), dimension(NUM_GRID_POINTS,NUM_ITER) ::v_iter
-        REAL(DP), dimension(NUM_GRID_POINTS,NUM_GRID_POINTS) :: RHS
+        REAL(DP), dimension(NUM_GRID_POINTS,NUM_ITER) ::v_iter, k_tilde
         INTEGER(I4B) :: i,j
         PROCEDURE(template_function), POINTER :: func
-        REAL(DP), dimension(2,1) :: pointToEval
-        REAL(DP), dimension(2) :: valAtPoint
 
         data v_iter /NUM_POINTS * 0.0D0/
 
         func => splineMinVal
 
         mydel=1.0D0
-    call policy(mydel,"q7del1p0.csv")
-!        mydel=0.1D0
- !   call policy(mydel,"q7del0p1.csv")
+        call policy(mydel,"q3del1p0.csv")
+        mydel=0.1D0
+        call policy(mydel,"q3del0p1.csv")
 
 contains
     subroutine policy(del,outputFile)
         real(KIND=8),INTENT(IN) :: del
         character(LEN=*),INTENT(IN) :: outputFile
 
-        real(KIND=8) :: kss, kd, ku,eps, err, slope1, slope2, temp2, tol=10e-3
+        real(KIND=8) :: kss, kd, ku,eps, err, slope1, slope2, tol=10e-3
         real(KIND=8), dimension(NUM_GRID_POINTS,1) :: one
-        integer, dimension(NUM_GRID_POINTS) :: ind_k_tilde
         real(KIND=8), dimension(NUM_GRID_POINTS,NUM_ITER) ::c_policy
-        real(KIND=8), dimension(NUM_GRID_POINTS,NUM_GRID_POINTS) ::Ut, PPF, c
+        REAL(DP), dimension(NUM_GRID_POINTS) :: newRHS
 
         real(KIND=8), dimension(NUM_GRID_POINTS,1) :: colPtr1, colPtr2
-        integer  :: iter
+        integer  :: tempInt1
 
         !some basic initialization
         data c_policy /NUM_POINTS * 0.0D0/
@@ -230,49 +235,27 @@ contains
         print *,"Starting calculation."
         flush(6)
 
-        eps=epsilon(1.0D0)
-
         !calculating the kss
         kss=(1.0D0/(bet*alf*A)-(1.0D0-del)/(alf*A))**(1.0D0/(alf-1.0D0))
         !lowest possible capital expenditure
         kd  = .01*kss
         ku  = 1.5*kss
 
-        k(1)=epsilon(1.0D0)
-        do i=2,NUM_GRID_POINTS-1
-            k(i) = kd+(i-2)*(ku-kd)/(NUM_GRID_POINTS-1)
-        end do
-        k(NUM_GRID_POINTS)=ku
+        call sub_grid_generation(k,kd,ku,3.0D0, 1)
 
         !An array where cell i,j indicates how much we would produce if we had
         !ki capital level this period and chose kj capital level for next
         !period (note: kj is independent of output, so all elements in a given
         !row are the same)
-        colPtr1 = reshape(k, (/NUM_GRID_POINTS , 1/))
-        PPF = transpose(matmul(one,transpose((1.0D0-del)*colPtr1+A*colPtr1**alf)))
+        PPF = (1.0D0-del)*k+A*k**alf
 
-        !consumption in period. Cell i,j is consumption if we had used ki to
-        !produce and kj is next period's capital choice
-        c = PPF-matmul(one,transpose(colPtr1))
-
-        ! we have a minimum level of consumption (to avoid crazy values)
-        c = max(c,-cbar+eps)
-
-        !so, we can now find utility for each consumption/capital pair
-        !where Ut(i,j) is the utility we obtain by consumption where we produced
-        !with ki capital and saved kj capital for next period.
-        Ut = log(c+cbar)
-
-        !v_iter contains our initial guess at the value function. So
-        !RHS contains our initial guess at  the value of the bellman equation
-        colPtr2 = reshape(v_iter(:,1), (/NUM_GRID_POINTS , 1/))
-        RHS = Ut+bet*matmul(one,transpose(colPtr2))
+        eps=epsilon(1.0D0)
+        RHS = log(PPF)+100
 
         ! Numerical value function iterations
         i=1
         err = 100.0D0
         do while ((err > 1.0e-6) .and. (i<NUM_ITER))
-
             i=i+1
             !RHS gives us the value function for capital on the current
             !grid. But this is not neccessarily the maximum value. So,
@@ -281,61 +264,52 @@ contains
             !This will give us k_tilde for the next period at each
             !starting k, with which we can then get new estimates of
             !the value function.
+            slope1=(RHS(2)-RHS(1))/(k(2)-k(1))
+            slope2=(RHS(NUM_GRID_POINTS)-RHS(NUM_GRID_POINTS-1))/(k(NUM_GRID_POINTS)-k(NUM_GRID_POINTS-1))
+            call spline(k,RHS,slope1,slope2,splinePoints)
 
-            k_tilde(1)=k(1)
-            do j=2,NUM_GRID_POINTS
-                pointToEval(1,1) = k(2)
-                valAtPoint(1) = splineMinVal(pointToEval(1,:))
-                pointToEval(2,1) = k(NUM_GRID_POINTS)
-                valAtPoint(2) = splineMinVal(pointToEval(2,:))
+            do j=1,NUM_GRID_POINTS
 
-                !okay, let's estimate the value function using cubic spline
-                slope1 = (RHS(j,3)-RHS(j,2))/(k(3)-k(2))
-                slope1 = (RHS(j,NUM_GRID_POINTS)-RHS(j,NUM_GRID_POINTS-1))/(k(NUM_GRID_POINTS)-k(NUM_GRID_POINTS-1))
+                newRHS = -(log(max(PPF(j)-k,eps))+bet*RHS)
 
-                call spline(k,RHS(j,:),slope1,slope2,splinePoints)
-
-                CALL amoeba(pointToEval,valAtPoint, tol,func,iter)
-
-                v_iter(j,i) = -valAtPoint(1)
-                k_tilde(j)  = pointToEval(1,1)
-
-                temp2 = k(j)**alf + (1.0D0-del)*k(j) - k_tilde(j)
-                if (temp2 < 0.0D0)then
-                    print *,i,j
-                    print *, "Dumb result: ",k(j),":",temp2,":",k_tilde(j)
-                    stop 1
-                end if
+                tempInt1=minloc(newRHS,1)
+                if (tempInt1 .eq. 1) tempInt1=2
+                if (tempInt1 .eq. NUM_GRID_POINTS) tempInt1=NUM_GRID_POINTS-1
+                v_iter(j,i)= -brent(k(tempInt1-1), k(tempInt1), k(tempInt1+1), &
+                                        &func, tol,k_tilde(j,i))
             end do
-            c_policy(:,i) = k(:)**alf +(1.0D0-del)*k(:) - k_tilde(:)
+            c_policy(:,i) = max(PPF - k_tilde(:,i),eps)
 
-            print *,"k: ",k
-            print *,"c: ",c_policy(:,i)
-            print *,"k':",k_tilde
-            print *,"v':",v_iter(:,i)
-            print *," "
             ! need to pretend each of these columns is an array
             colPtr1 = reshape(v_iter(:,i-1), (/NUM_GRID_POINTS , 1/))
             colPtr2 = reshape(v_iter(:,i), (/NUM_GRID_POINTS , 1/))
             ! checking the norm of the difference between successive iterations:
             ! this is convergence criterion
             err = maxval(abs(colPtr2 - colPtr1))
-            RHS = Ut + bet*matmul(one,transpose(colPtr2))
+            RHS = v_iter(:,i)
 
          end do
 
         print *,"Finished calculation. ",i," iterations"
 
-        do i=1,NUM_GRID_POINTS
-!            write(1,*) k(i),",",k_tilde(i),",",k(i)
+                open(1, file="kTrans.txt")
+        do j=1,NUM_GRID_POINTS
+            write(1,*) k_tilde(j,1:i-1)
         end do
+        close(1)
+
+        open(1, file=outputFile)
+        do j=1,NUM_GRID_POINTS
+            write(1,*) k(j),",",k_tilde(j,i),",",k(j)
+        end do
+        close(1)
 
     end subroutine policy
 
     !-------------------------------------
     FUNCTION splineMinVal(x) RESULT (z)
         !-------------------------------------
-        REAL(DP), DIMENSION(:), INTENT(IN) :: x
+        REAL(DP),INTENT(IN) :: x
         REAL(DP) :: z
         z=-splineMaxVal(x)
     END FUNCTION splineMinVal
@@ -343,40 +317,12 @@ contains
     !-------------------------------------
     FUNCTION splineMaxVal(x) RESULT (z)
         !-------------------------------------
-        REAL(DP), DIMENSION(:), INTENT(IN) :: x
+        REAL(DP), INTENT(IN) :: x
         REAL(DP) :: z
-        REAL(DP) :: result1, c, eps=epsilon(1.0D0), prod, diff, tempc
-        INTEGER :: which
-        prod = k(j)**alf +(1.0D0-mydel)*k(j)
-        tempc = prod - x(1)
-        if(tempc<eps)then
-            which = 1
-            c=eps
-            z=-10.0e20
-        else if (tempc>prod) then
-            which = 2
-            c=prod-eps
-            z=-10.0e20
-        else if(x(1)>k(NUM_GRID_POINTS)) then
-            which = 3
-            c=prod-k(NUM_GRID_POINTS)
-            z=-10.0e20
-        else
-            which = 3
-            c=tempc
-        diff=c-tempc
-        result1=splint(k,RHS(j,:),splinePoints,x(1)-diff)
-        z=log(c)+bet*result1
-        if(z>0.0D0)then
-            print *,"func:",k
-            print *,"RHS: ",RHS(j,:)
-            print *,k(j),x(1),result1,z
-            flush(6)
-            stop 0
-        end if
-        end if
-
-!        print *,"func: ","k:",k(j),"p:",prod,"tx:",x(1),"x:",x(1)-diff,"c:",c,z
+        REAL(DP),parameter :: eps=epsilon(1.0D0)
+        REAL(DP) :: fixedC
+        fixedC=max(PPF(j)-x,eps)
+        z=log(fixedC)+bet*splint(k,RHS,splinePoints,x)
     END FUNCTION splineMaxVal
 
     SUBROUTINE sub_grid_generation(x,xcentre,xbounds,s, gentype)
