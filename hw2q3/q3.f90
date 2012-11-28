@@ -262,7 +262,7 @@ contains
             !RHS gives us the value function for capital on the current
             !grid. But this is not neccessarily the maximum value. So,
             !we will use cubic spline to estimate the value function.
-            !Then, we will find the maximum using the amoeba algorithm.
+            !Then, we will find the maximum using the brent algorithm.
             !This will give us k_tilde for the next period at each
             !starting k, with which we can then get new estimates of
             !the value function.
@@ -289,16 +289,9 @@ contains
             ! this is convergence criterion
             err = maxval(abs(colPtr2 - colPtr1))
             RHS = v_iter(:,i)
-
          end do
 
         print *,"Finished calculation. ",i," iterations"
-
-                open(1, file="kTrans.txt")
-        do j=1,NUM_GRID_POINTS
-            write(1,*) k_tilde(j,1:i-1)
-        end do
-        close(1)
 
         open(1, file=outputFile)
         do j=1,NUM_GRID_POINTS
