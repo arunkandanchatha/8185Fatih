@@ -197,7 +197,7 @@ use nrtype
         REAL(DP), parameter :: alf=0.4D0
         REAL(DP), parameter :: bet=0.9D0
         REAL(DP), parameter :: cbar=0.0D0
-        integer, parameter :: NUM_GRID_POINTS = 201
+        integer, parameter :: NUM_GRID_POINTS = 1001
         integer, parameter :: NUM_ITER = 500
         integer, parameter :: NUM_POINTS=NUM_GRID_POINTS*NUM_ITER
 
@@ -257,6 +257,8 @@ contains
         err = 100.0D0
         do while ((err > 1.0e-6) .and. (i<NUM_ITER))
             i=i+1
+            print *,i
+            flush(6)
             !RHS gives us the value function for capital on the current
             !grid. But this is not neccessarily the maximum value. So,
             !we will use cubic spline to estimate the value function.
