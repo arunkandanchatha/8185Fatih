@@ -37,7 +37,7 @@ program main
     ! other parameters of the model
     !**************************************************************************
     real*8, parameter                   ::  r=0.1D0,beta=0.90
-    real*8                              :: rho,alpha,RRA,EIS
+    real*8                              :: rho,alpha,RRA,EIS,mysigma
     !**************************************************************************
     ! Preparing the value function and the policy function arrays
     !**************************************************************************
@@ -49,6 +49,10 @@ program main
     integer                             ::  i,iter,it,j,jj
     PROCEDURE(template_function), POINTER :: epsZin,crraFn
     LOGICAL                             :: doSpline = .TRUE.
+    !**************************************************************************
+    ! timing vars
+    !**************************************************************************
+    REAL*8, DIMENSION(4)                :: startTime, endTime, myRRA
 
     epsZin => func1
     crraFn => func2
@@ -57,38 +61,57 @@ program main
     EIS=2.0D0
     rho=1-1.0D0/EIS
     alpha=1-RRA
-#if 1
-    call question(epsZin, "policy1a", "value1a")
-    rho=RRA
-    call question(crraFn, "policy1b", "value1b")
-#endif
+    call question(epsZin, "EZ_policyr2e2", "EZ_valuer2e2")
 
     EIS=0.1D0
     rho=1-1/EIS
     alpha=1-RRA
-#if 1
-    call question(epsZin, "policy2a", "value2a")
-    rho=RRA
-    call question(crraFn, "policy2b", "value2b")
-#endif
+    call question(epsZin, "EZ_policyr2e0p1", "EZ_valuer2e0p1")
 
     RRA=10.0D0
     EIS=2.0D0
     rho=1-1/EIS
     alpha=1-RRA
-#if 1
-    call question(epsZin, "policy3a", "value3a",5)
-    rho=RRA
-    call question(crraFn, "policy3b", "value3b",5)
-#endif
+    call question(epsZin, "EZ_policyr10e2", "EZ_valuer10e2")
+
     EIS=0.1D0
     rho=1-1/EIS
     alpha=1-RRA
-#if 1
-    call question(epsZin, "policy4a", "value4a")
-    rho=RRA
-    call question(crraFn, "policy4b", "value4b")
-#endif
+    call question(epsZin, "EZ_policyr10e0p1", "EZ_valuer10e0p1")
+
+    RRA=2.0D0
+    alpha=1-RRA
+    rho = alpha
+    myRRA(1)=RRA
+    call CPU_TIME(startTime(1))
+    call question(epsZin, "EZ_policyCRRA2", "EZ_valueCRRA2")
+    call CPU_TIME(endTime(1))
+
+    RRA=10.0D0
+    alpha=1-RRA
+    rho = alpha
+    myRRA(2)=RRA
+    call CPU_TIME(startTime(2))
+    call question(epsZin, "EZ_policyCRRA10", "EZ_valueCRRA10")
+    call CPU_TIME(endTime(2))
+
+    mysigma = 2.0D0
+    myRRA(3)=mysigma
+    call CPU_TIME(startTime(3))
+    call question(crraFn, "CRRA_policy2", "CRRA_value2")
+    call CPU_TIME(endTime(3))
+
+    mysigma = 10.0D0
+    myRRA(4)=mysigma
+    call CPU_TIME(startTime(4))
+    call question(crraFn, "CRRA_policy10", "CRRA_value10")
+    call CPU_TIME(endTime(4))
+
+    print *,"Function     RRA                        Time"
+    print *,"EZ        ",myRRA(1),endTime(1)-startTime(1)
+    print *,"EZ        ",myRRA(2),endTime(2)-startTime(2)
+    print *,"CRRA      ",myRRA(3),endTime(3)-startTime(3)
+    print *,"CRRA      ",myRRA(4),endTime(4)-startTime(4)
 
 
 
@@ -102,7 +125,9 @@ contains
         INTEGER, OPTIONAL, INTENT(IN) :: every
 
         real(DP) tempD2,tempD
-        integer :: reportNum=50
+        integer :: reportNum
+
+        reportNum = 50
 
         if(PRESENT(every)) then
             reportNum=every
@@ -600,7 +625,7 @@ end if
             stop 0
             temp=epsilon(1.0D0)
         end if
-        z=-(temp**(1-rho)/(1-rho)+beta*rp(1))
+        z=-(temp**(1-mysigma)/(1-mysigma)+beta*rp(1))
 
     end function func2
 
