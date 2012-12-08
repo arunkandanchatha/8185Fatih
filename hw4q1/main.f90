@@ -221,7 +221,7 @@ contains
         integer, DIMENSION(1) :: indexInGridTemp
         integer :: indexInGrid, nextPoint
 
-        indexInGridTemp=minloc(abs(gridPoints-evalPoint))
+        indexInGridTemp=minloc(abs(evalPoint-gridPoints))
         indexInGrid = indexInGridTemp(1)
         if(evalPoint>gridPoints(indexInGrid)) then
             nextPoint = indexInGrid + 1
@@ -397,12 +397,19 @@ module aiyagariSolve
 
     real*8, parameter                   ::  phi=.9D0,sigma=.4D0
     integer, parameter                  ::  n_s=3
-    integer, parameter                  ::  n_a=101
-    real*8, parameter                   ::  curv=3.0D0,a_max=45.0D0
+    integer, parameter                  ::  n_a=216
+
+    !******************
+    ! These are here because of screwey splines
+    !******************
+    integer, parameter                  ::  bottomChop=10   !the number of first points we want to ignore
+    integer, parameter                  ::  topChop=5       !the number of end points we want to ignore
+
+    real*8, parameter                   ::  curv=2.0D0,a_max=100.0D0
     real*8, parameter                   :: beta=0.90
     integer, parameter                  ::  maxit=2000
     real*8,parameter                    ::  toll=1D-8,tol2=1D-8
-    LOGICAL                             :: doSpline = .TRUE.
+    LOGICAL                             :: doSpline = .FALSE.
 
     real*8, dimension(n_s)              ::  s,stationary
     real*8, dimension(n_s,n_s)          ::  transition
@@ -462,7 +469,7 @@ contains
         REAL(KIND=8) :: z
         INTEGER :: iterCount, i
         real*8                              ::  incr
-        real*8, dimension(n_s,n_a)          ::  steadyStateCapital
+        real*8, dimension(n_s,n_a-bottomChop-topChop)          ::  steadyStateCapital
 
         a_min = max(-s(1)/r+1.0D0,-3.0D0)
 
@@ -494,6 +501,9 @@ contains
         !*****************************************************
         call findSteadyState(g(:,:,iterCount),steadyStateCapital)
 
+        do iterCount=1,n_s
+            print *,steadyStateCapital(iterCount,:)
+        end do
         !**************************************************
         ! now, calculate total borrowing using policy functions
         !**************************************************
@@ -506,39 +516,52 @@ contains
         z=0.0D0
     end function aggregateBonds
 
-    subroutine findSteadyState(capitalPolicy, statDist)
+    subroutine findSteadyState(capitalPolicyOrig, statDist)
         !INPUTS: capitalPolicy - the policy function for each state
         !OUTPUTS: statDist - the stationary dist (note: pdf, not cdf)
-        REAL(DP), dimension(n_s,n_a), INTENT(IN) :: capitalPolicy
-        real(DP), dimension(n_s,n_a), intent(out) :: statDist
-        real(DP), dimension(n_s,n_a) ::f_o, f_o_hat, f_n
+        INTEGER, parameter :: capitalCount = n_a-bottomChop-topChop
+        REAL(DP), dimension(n_s,n_a), INTENT(IN) :: capitalPolicyOrig
+        real(DP), dimension(n_s,capitalCount), intent(out) :: statDist
+        real(DP), dimension(n_s,capitalCount) ::f_o, f_o_hat, f_n
         real(DP) :: diff
         INTEGER :: i,j, counter
+        REAL(DP), dimension(n_s,capitalCount) :: capitalPolicy
+        REAL(DP), dimension(capitalCount) :: newCapital
+
+        newCapital = a(bottomChop+1:n_a-topChop)
+        capitalPolicy = capitalPolicyOrig(:,bottomChop+1:n_a-topChop)
 
         !setting initial guess to uniform dist across asset grid. First we have it
         !a cdf, and then convert to the appropriate pdf
         do i=1,n_s
-            do j=1,n_a
-                statDist(i,j) = (a(j) - a(1))/(a(n_a)-a(1))
+            do j=1,capitalCount
+                statDist(i,j) = (newCapital(j) - newCapital(1))/(newCapital(capitalCount)-newCapital(1))
             end do
         end do
 
         f_n=statDist
 
-        !normalize so that we can compare
-        do i=1,n_s
-            f_n(i,:)=f_n(i,:)*stationary(i)/f_n(i,n_a)
-        end do
-
         ! time to iterate
         diff=100
         counter = 0
-        do while((diff>tol2) .and. (counter<100))
+        do while((diff>tol2) .and. (counter<maxit))
             counter = counter + 1
             f_o=f_n
 
+                do i=1,n_s
+                do j=1,capitalCount
+                    if (j>1) then
+                    if (capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
+                        print *,"non-monotonic capital: ", counter, capitalCount
+                        print *,"j-1:",j-1,"val: ",capitalPolicy(i,j-1)
+                        print *,"j:",j,"val: ",capitalPolicy(i,j)
+                        stop
+                    end if
+                    end if
+                end do
+                end do
             do i=1,n_s
-                do j=1,n_a
+                do j=1,capitalCount
                     f_o_hat(i,j) = linear(f_o(i,:),capitalPolicy(i,:),a(j))
                 end do
             end do
@@ -546,19 +569,15 @@ contains
             ! need to make sure monotonic and bounded between 0 and 1
             do i=1,n_s
                 diff=-1e-5
-                do j=1,n_a
+                do j=1,capitalCount
                     if(f_o_hat(i,j)>1.0_dp) then
                         f_o_hat(i,j)=1.0_dp
                     else if (f_o_hat(i,j)<0.0_dp) then
-                        if(j==1)then
-                            f_o_hat(i,j)=0.0D0
-                        else
-                            f_o_hat(i,j)=f_o_hat(i,j-1)+epsilon(1.0D0)
-                        end if
+                        f_o_hat(i,j)=0.0D0
                     else if (isnan(f_o_hat(i,j))) then
                         print *, "Error: f_o_hat is NAN. Counter:",counter," shock: ",i,"element: ",j
                         print *,"Capital Grid"
-                        print *,a(:)
+                        print *,newCapital(:)
                         print *,"Policy Fn"
                         print *,capitalPolicy(j,:)
                         print *,"f_o"
@@ -576,7 +595,7 @@ contains
                         print *,capitalPolicy(i,:)
                         print *,f_o(i,:)
                         print *,"f_o_hat"
-                        print *,a
+                        print *,newCapital
                         print *,f_o_hat(i,:)
                         stop 0
                     end if
@@ -584,12 +603,7 @@ contains
                 end do
             end do
 
-            f_n = matmul(transition, f_o_hat)
-
-            !normalize to account for rounding errors
-            do i=1,n_s
-                f_n(i,:)=f_n(i,:)*stationary(i)/f_n(i,n_a)
-            end do
+            f_n = matmul(transpose(transition), f_o_hat)
 
             diff = maxval(abs(f_n - f_o))
             if (mod(counter,50)==0) then
@@ -597,12 +611,16 @@ contains
             end if
         end do
 
-        statDist = f_n
         print *,"done: ",counter
-        do i=n_a,2,-1
+        !normalize to account for rounding errors
+        do i=1,n_s
+            f_n(i,:)=f_n(i,:)*stationary(i)
+        end do
+        statDist = f_n
+        do i=capitalCount,2,-1
             statDist(:,i) = statDist(:,i) - statDist(:,i-1)
         end do
-        statDist(:,1) = stationary-sum(statDist(:,2:n_a),dim=2)
+        statDist(:,1) = stationary-sum(statDist(:,2:capitalCount),dim=2)
 
     end subroutine findSteadyState
 
@@ -680,5 +698,5 @@ program main
     EIS=2.0D0
     func => valueFunction
     call setParams(RRA, EIS, func, "policyR2E2", 50, .FALSE.)
-    print *,aggregateBonds(0.05D0)
+    print *,aggregateBonds(0.001D0)
 end program main
