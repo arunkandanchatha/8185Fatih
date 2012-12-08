@@ -204,7 +204,11 @@ contains
         call nrerror('brent: exceed maximum iterations')
     END FUNCTION brent
 
-    FUNCTION linear(func,evalPoint,gridPoints) RESULT(z)
+    FUNCTION linear(func,gridPoints, evalPoint) RESULT(z)
+        ! INPUTS: func - a vector of function values
+        !         gridPoints - the points at which the function is evaluated
+        ! OUTPUTS: evalPoint - the point at which we want to evaluate
+
         !only makes sense in two dimensions
         REAL(DP),DIMENSION(:),INTENT(in) :: gridPoints
         REAL(DP),DIMENSION(size(gridPoints)), INTENT(in) :: func
@@ -222,7 +226,8 @@ contains
         if(evalPoint>gridPoints(indexInGrid)) then
             nextPoint = indexInGrid + 1
         else
-            nextPoint = indexInGrid -1
+            nextPoint = indexInGrid
+            indexInGrid = indexInGrid - 1
         end if
 
         ! if we are past the max grid point, use the left derivative
@@ -326,7 +331,7 @@ contains
             allocate(y2(n_s,size(values,dim=2)))
             y2=splineParams
             doSpline=.TRUE.
-         end if
+        end if
     end subroutine wrapperInit
 
     subroutine wrapperClean()
@@ -369,7 +374,7 @@ contains
             if (doSpline) then
                 interpolated(jj,1)=splint(a,v(jj,:),y2(jj,:),x)
             else
-                interpolated(jj,1)=linear(v(jj,:),x,a)
+                interpolated(jj,1)=linear(v(jj,:),a,x)
             end if
         end do
         rp=matmul(transition(currentState,:),interpolated**alpha)
@@ -393,13 +398,14 @@ module aiyagariSolve
     real*8, parameter                   ::  phi=.9D0,sigma=.4D0
     integer, parameter                  ::  n_s=3
     integer, parameter                  ::  n_a=101
-    real*8, parameter                   ::  curv=3.0D0,a_max=35.0D0
+    real*8, parameter                   ::  curv=3.0D0,a_max=45.0D0
     real*8, parameter                   :: beta=0.90
     integer, parameter                  ::  maxit=2000
-    real*8,parameter                    ::  toll=1D-8
+    real*8,parameter                    ::  toll=1D-8,tol2=1D-8
     LOGICAL                             :: doSpline = .TRUE.
 
     real*8, dimension(n_s)              ::  s,stationary
+    real*8, dimension(n_s,n_s)          ::  transition
     real*8, dimension(n_a)              ::  a
     real*8                              ::  a_min
 
@@ -439,6 +445,14 @@ contains
             doSpline=.not. doLinear
         end if
         policyOutput = file1
+
+        !**************************************************************************
+        ! We use the rowenhorst method to obtain the transition matrix GAMMA,
+        ! the stationary probability distribution stationary, and the shocks s.
+        !**************************************************************************
+        call rouwenhorst(phi,sigma,transition,s,stationary)
+        s=1+s
+
     end subroutine setParams
 
     function aggregateBonds(r) RESULT (z)
@@ -447,15 +461,9 @@ contains
         REAL(KIND=8), INTENT(IN) :: r
         REAL(KIND=8) :: z
         INTEGER :: iterCount, i
-        real*8, dimension(n_s,n_s)          ::  transition
         real*8                              ::  incr
+        real*8, dimension(n_s,n_a)          ::  steadyStateCapital
 
-        !**************************************************************************
-        ! We use the rowenhorst method to obtain the transition matrix GAMMA,
-        ! the stationary probability distribution stationary, and the shocks s.
-        !**************************************************************************
-        call rouwenhorst(phi,sigma,transition,s,stationary)
-        s=1+s
         a_min = max(-s(1)/r+1.0D0,-3.0D0)
 
         !**************************************************************************
@@ -480,6 +488,12 @@ contains
         call wrapperCreate(a,transition,s,alpha,rho,beta,r)
         iterCount=getPolicyForInterest(r)
         call wrapperDestroy()
+
+        !*****************************************************
+        ! find the steady state capital
+        !*****************************************************
+        call findSteadyState(g(:,:,iterCount),steadyStateCapital)
+
         z=0.0D0
 
         open(unit=1,file=policyOutput)
@@ -492,6 +506,108 @@ contains
         end do
 
     end function aggregateBonds
+
+    subroutine findSteadyState(capitalPolicy, statDist)
+        !INPUTS: capitalPolicy - the policy function for each state
+        !OUTPUTS: statDist - the stationary dist (note: pdf, not cdf)
+        REAL(DP), dimension(n_s,n_a), INTENT(IN) :: capitalPolicy
+        real(DP), dimension(n_s,n_a), intent(out) :: statDist
+        real(KIND=8), dimension(n_s,1) :: colPtr1
+        real(KIND=8), dimension(n_s,n_a) :: colPtr2
+        real(DP), dimension(n_s,n_a) ::f_o, f_o_hat, f_n
+        real(DP) :: diff
+        INTEGER :: i,j, counter
+
+        !setting initial guess to uniform dist across asset grid. First we have it
+        !a cdf, and then convert to the appropriate pdf
+        do i=1,n_s
+            do j=1,n_a
+                statDist(i,j) = (a(j) - a(1))/(a(n_a)-a(1))
+            end do
+        end do
+
+        f_n=statDist
+
+        !normalize so that we can compare
+        do i=1,n_s
+            f_n(i,:)=f_n(i,:)*stationary(i)/f_n(i,n_a)
+        end do
+
+        ! time to iterate
+        diff=100
+        counter = 0
+        do while((diff>tol2) .and. (counter<100))
+            counter = counter + 1
+            f_o=f_n
+
+            do i=1,n_s
+                do j=1,n_a
+                    f_o_hat(i,j) = linear(f_o(i,:),capitalPolicy(i,:),a(j))
+                end do
+            end do
+
+            ! need to make sure monotonic and bounded between 0 and 1
+            do i=1,n_s
+                diff=-1e-5
+                do j=1,n_a
+                    if(f_o_hat(i,j)>1.0_dp) then
+                        f_o_hat(i,j)=1.0_dp
+                    else if (f_o_hat(i,j)<0.0_dp) then
+                        if(j==1)then
+                            f_o_hat(i,j)=0.0D0
+                        else
+                            f_o_hat(i,j)=f_o_hat(i,j-1)+epsilon(1.0D0)
+                        end if
+                    else if (isnan(f_o_hat(i,j))) then
+                        print *, "Error: f_o_hat is NAN. Counter:",counter," shock: ",i,"element: ",j
+                        print *,"Capital Grid"
+                        print *,a(:)
+                        print *,"Policy Fn"
+                        print *,capitalPolicy(j,:)
+                        print *,"f_o"
+                        print *,f_o(i,:)
+                        print *,"f_o_hat"
+                        print *,f_o_hat(i,:)
+                        stop 0
+                    end if
+
+                    !add a test: if non-monotonic, fail
+                    if(diff>f_o_hat(i,j)) then
+                        print *, "Error: Non-monotonic cdf function. Counter:",counter," element: ", j, " shock: ",i
+                        print *,"value_old: ",diff, " value_new: ",f_o_hat(i,j)
+                        print *,"f_o"
+                        print *,capitalPolicy(i,:)
+                        print *,f_o(i,:)
+                        print *,"f_o_hat"
+                        print *,a
+                        print *,f_o_hat(i,:)
+                        stop 0
+                    end if
+                    diff=f_o_hat(i,j)
+                end do
+            end do
+
+            f_n = matmul(transition, f_o_hat)
+
+            !normalize to account for rounding errors
+            do i=1,n_s
+                f_n(i,:)=f_n(i,:)*stationary(i)/f_n(i,n_a)
+            end do
+
+            diff = maxval(abs(f_n - f_o))
+            if (mod(counter,50)==0) then
+                print*,"findSteadyState Iteration: ",counter, " diff: ",diff
+            end if
+        end do
+
+        statDist = f_n
+        print *,"done: ",counter
+        do i=n_a,2,-1
+            statDist(:,i) = statDist(:,i) - statDist(:,i-1)
+        end do
+        statDist(:,1) = stationary-sum(statDist(:,2:n_a),dim=2)
+
+    end subroutine findSteadyState
 
     function getPolicyForInterest(r) result(y)
         REAL(KIND=8), INTENT(IN) :: r
@@ -518,8 +634,8 @@ contains
                         kr1=a(1)
                         kr3=min(a(it)*(1+r)+s(i),a(n_a))
                         kr2=(kr1+kr3)/2D0
-!                        splineD=splineDeriv(a, v(i,:,iter-1), y2(i,:))
-!                        v(i,it,iter)=-dbrent(funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
+                        !                        splineD=splineDeriv(a, v(i,:,iter-1), y2(i,:))
+                        !                        v(i,it,iter)=-dbrent(funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
                         v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
                     end do
                 end do
@@ -567,5 +683,5 @@ program main
     EIS=2.0D0
     func => valueFunction
     call setParams(RRA, EIS, func, "policyR2E2", 50, .FALSE.)
-    print *,aggregateBonds(0.1D0)
+    print *,aggregateBonds(0.05D0)
 end program main
