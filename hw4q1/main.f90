@@ -494,17 +494,16 @@ contains
         !*****************************************************
         call findSteadyState(g(:,:,iterCount),steadyStateCapital)
 
+        !**************************************************
+        ! now, calculate total borrowing using policy functions
+        !**************************************************
+        !TO DO
+
+        !***************************************************
+        ! return the absolute value of total borrowing
+        !***************************************************
+        !TO DO
         z=0.0D0
-
-        open(unit=1,file=policyOutput)
-        open(unit=2,file="asset")
-        do i=1,n_s
-            write(1,*) g(i,:,iterCount)
-        end do
-        do i=1,n_a
-            write(2,*) a(i)
-        end do
-
     end function aggregateBonds
 
     subroutine findSteadyState(capitalPolicy, statDist)
@@ -512,8 +511,6 @@ contains
         !OUTPUTS: statDist - the stationary dist (note: pdf, not cdf)
         REAL(DP), dimension(n_s,n_a), INTENT(IN) :: capitalPolicy
         real(DP), dimension(n_s,n_a), intent(out) :: statDist
-        real(KIND=8), dimension(n_s,1) :: colPtr1
-        real(KIND=8), dimension(n_s,n_a) :: colPtr2
         real(DP), dimension(n_s,n_a) ::f_o, f_o_hat, f_n
         real(DP) :: diff
         INTEGER :: i,j, counter
