@@ -2,6 +2,110 @@ module utilFuncs
     use nrtype
     use nrutil
 contains
+    FUNCTION getSimplexAround(startPoint, distance) RESULT (Y)
+        REAL(DP), DIMENSION(2), INTENT(IN) :: startPoint
+        REAL(DP), INTENT(IN) :: distance
+        REAL(DP), DIMENSION(3,2) :: y
+        REAL(DP) :: diffx, diffy, multiplier
+        REAL(DP), DIMENSION(3,2) :: startPoint2
+
+        multiplier = distance/2.0D0
+        diffy=-multiplier
+        diffx=sqrt(3.0D0)*multiplier
+
+        startPoint2(1,1)=startPoint(1)
+        startPoint2(1,2)=startPoint(2)+multiplier
+
+        startPoint2(2,1)=startPoint(1)-diffx
+        startPoint2(2,2)=startPoint(2)+diffy
+
+        startPoint2(3,1)=startPoint(1)+diffx
+        startPoint2(3,2)=startPoint(2)+diffy
+
+        y = startPoint2
+    END FUNCTION getSimplexAround
+
+    SUBROUTINE amoeba(p,y,ftol,func,iter)
+        USE nrtype; USE nrutil, ONLY : assert_eq,imaxloc,iminloc,nrerror,swap
+        IMPLICIT NONE
+        INTEGER(I4B), INTENT(OUT) :: iter
+        REAL(dp), INTENT(IN) :: ftol
+        REAL(dp), DIMENSION(:), INTENT(INOUT) :: y   ! "func" evaluated at the n vertices provided in "p"
+        REAL(dp), DIMENSION(:,:), INTENT(INOUT) :: p ! vertices. If we have n vertices, then we must be
+                                                         ! in n-1 dimensional space (we need one extra vertex
+                                                         ! than dimensions. For each row, the n-1 vector
+                                                         ! specifies the vertex
+        PROCEDURE(template_function3), POINTER, INTENT(in) :: func
+        INTEGER(I4B), PARAMETER :: ITMAX=5000
+        REAL(dp), PARAMETER :: TINY=1.0e-10
+        INTEGER(I4B) :: ihi,ndim
+        REAL(dp), DIMENSION(size(p,2)) :: psum
+        call amoeba_private
+    CONTAINS
+        !BL
+        SUBROUTINE amoeba_private
+            IMPLICIT NONE
+            INTEGER(I4B) :: i,ilo,inhi
+            REAL(dp) :: rtol,ysave,ytry,ytmp
+
+            ndim=assert_eq(size(p,2),size(p,1)-1,size(y)-1,'amoeba')
+            iter=0
+            psum(:)=sum(p(:,:),dim=1)
+            do
+                ilo=iminloc(y(:))
+                ihi=imaxloc(y(:))
+                ytmp=y(ihi)
+                y(ihi)=y(ilo)
+                inhi=imaxloc(y(:))
+                y(ihi)=ytmp
+                rtol=2.0_dp*abs(y(ihi)-y(ilo))/(abs(y(ihi))+abs(y(ilo))+TINY)
+                if (rtol < ftol) then
+                    call swap(y(1),y(ilo))
+                    call swap(p(1,:),p(ilo,:))
+                    RETURN
+                end if
+                if (iter >= ITMAX) call nrerror('ITMAX exceeded in amoeba')
+                ytry=amotry(-1.0_dp)
+                iter=iter+1
+                if (ytry <= y(ilo)) then
+                    ytry=amotry(2.0_dp)
+                    iter=iter+1
+                else if (ytry >= y(inhi)) then
+                    ysave=y(ihi)
+                    ytry=amotry(0.5_dp)
+                    iter=iter+1
+                    if (ytry >= ysave) then
+                        p(:,:)=0.5_dp*(p(:,:)+spread(p(ilo,:),1,size(p,1)))
+                        do i=1,ndim+1
+                            if (i /= ilo) y(i)=func(p(i,:))
+                        end do
+                        iter=iter+ndim
+                        psum(:)=sum(p(:,:),dim=1)
+                    end if
+                end if
+            end do
+        END SUBROUTINE amoeba_private
+        !BL
+        FUNCTION amotry(fac)
+            IMPLICIT NONE
+            REAL(dp), INTENT(IN) :: fac
+            REAL(dp) :: amotry
+            REAL(dp) :: fac1,fac2,ytry
+            REAL(dp), DIMENSION(size(p,2)) :: ptry
+            fac1=(1.0_dp-fac)/ndim
+            fac2=fac1-fac
+            ptry(:)=psum(:)*fac1-p(ihi,:)*fac2
+            ytry=func(ptry)
+            if (ytry < y(ihi)) then
+                y(ihi)=ytry
+                psum(:)=psum(:)-p(ihi,:)+ptry(:)
+                p(ihi,:)=ptry(:)
+            end if
+            amotry=ytry
+        END FUNCTION amotry
+    END SUBROUTINE amoeba
+
+
     ! given arrays x and y of length N containing a tabulated function
     ! given values yp1 and ypn for the first derivative of the interpolating function at points 1 and N
     ! this routine returns an array y2 of length N that contains the second derivatives
@@ -395,7 +499,7 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    real*8, parameter                   ::  curv=3.0D0,a_max=20.0D0
+    real*8, parameter                   ::  curv=3.0D0,a_max=200.0D0
     real*8, parameter                   :: beta=0.90
     integer, parameter                  ::  maxit=2000
     real*8,parameter                    ::  toll=1D-8,tol2=1D-8
@@ -452,7 +556,6 @@ contains
 
         if(PRESENT(myW))then
             wFixed=myW
-            print *,"initial w: ",wFixed
         end if
 
         if(PRESENT(myR))then
@@ -520,6 +623,36 @@ contains
         end if
 
     end function aggregateBondsFixedR
+
+    function aggregateBondsVaryBoth(point) RESULT (z)
+        ! inputs: r - the interest rate to test
+        ! outputs: z - the aggregate level of borrowing
+        REAL(KIND=8), DIMENSION(2), INTENT(IN) :: point
+        REAL(KIND=8) :: z
+
+        REAL(DP):: totalCapital, temp, temp2
+
+        rFixed = point(1)
+        wFixed = point(2)
+        totalCapital=aggregateBonds(rFixed,wFixed)
+
+        !*************************************************
+        ! Given this capital, what would interest rate be
+        !*************************************************
+        if(totalCapital < 0.0D0) then
+            z=100
+            print *,callCount,"Negative capital."
+            flush(6)
+        else
+            temp=deriv1Func(totalCapital,1.0D0)
+            temp2=deriv2Func(totalCapital,1.0D0)
+
+            z=sqrt((rFixed-temp)**2.0D0+(wFixed-temp2)**2.0D0)
+            print *,callCount,"K: ",totalCapital,"R(calc): ",temp, "W(calc)", temp2, &
+                    &"Diff: ",z
+            flush(6)
+        end if
+    end function aggregateBondsVaryBoth
 
     function aggregateBonds(r,w) RESULT (z)
         ! inputs: r - the interest rate to test
@@ -756,7 +889,8 @@ contains
                 call wrapperClean()
             end if
             if(mod(iter,reportNum)==0)then
-                print *,"r:",r,"iter: ",iter,"diff: ",maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)
+                print *,"r:",r,"w:",wFixed,"iter: ",iter,&
+                        &"diff: ",maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)
                 flush(6)
             end if
             if (     maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)    .lt.    toll     ) then
@@ -779,11 +913,16 @@ program main
 
     use aiyagariSolve
     use brentWrapper
-
     REAL(DP) :: RRA, EIS, intDiff,xmin
     REAL(DP) :: capitalShare = 0.5D0
     PROCEDURE(template_function), POINTER :: func
     PROCEDURE(template_function2), POINTER :: d1func, d2func
+    PROCEDURE(template_function3), POINTER :: func2
+    REAL(DP) :: temp
+    REAL(DP), DIMENSION(2) :: startPoint
+    REAL(DP), DIMENSION(3,2) :: startPoint2
+    REAL(DP), DIMENSION(3) :: startVals
+    INTEGER :: temp2
 
     RRA=2.0D0
     EIS=2.0D0
@@ -792,13 +931,26 @@ program main
     d2func => d2prod
 
     call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, .FALSE., 0.1D0, 1.0D0)
+#if 0
     func => aggregateBondsFixedW
-    intDiff=brent(func,0.01D0,0.15D0,0.5D0,1.0D-4,xmin)
-    print *,intDiff, xmin
+    s=brent(func,0.01D0,0.125D0,0.5D0,1.0D-4,startPoint(1))
+    print *,intDiff, startPoint(1)
 
-!    print *,aggregateBondsFixedR(1.0D0)
-!    func => aggregateBondsFixedR
-!    intDiff=brent(func,0.01D0,0.15D0,0.5D0,1.0D-4,xmin)
+    func => aggregateBondsFixedR
+    intDiff=brent(func,0.01D0,1.0D0,10.0D0,1.0D-4,startPoint(2))
+    print *,intDiff, startPoint(2)
+#else
+    func2=>aggregateBondsVaryBoth
+    startPoint(1)=0.0984648408653547164D0
+    startPoint(2)=1.3576254410966657D0
+    startPoint2 = getSimplexAround(startPoint, 0.05D0)
+
+    startVals(1)=func2(startPoint2(1,:))
+    startVals(2)=func2(startPoint2(2,:))
+    startVals(3)=func2(startPoint2(3,:))
+
+    CALL amoeba(startPoint2,startVals, 1.0D-4,func2,temp2)
+#endif
 
 contains
     function production(capital,labour) RESULT(y)

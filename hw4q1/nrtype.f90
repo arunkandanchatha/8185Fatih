@@ -47,4 +47,14 @@ MODULE nrtype
             REAL(KIND=8) :: z
         END FUNCTION template_function2
     END INTERFACE
+    ABSTRACT INTERFACE
+        FUNCTION template_function3(point) RESULT(z)
+            !
+            ! the function we are trying to minimize
+            ! INPUTS: point1, point2 - the value at which we are evaluating the function
+            ! OUTPUTS: z - the value of the function at that point
+            REAL(KIND=8), DIMENSION(2), INTENT(IN) :: point
+            REAL(KIND=8) :: z
+        END FUNCTION template_function3
+    END INTERFACE
 END MODULE nrtype
