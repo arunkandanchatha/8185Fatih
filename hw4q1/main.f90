@@ -232,7 +232,7 @@ contains
         if(nextPoint > size(gridPoints))then
             slope=(func(closest)-func(closest-1))/(gridPoints(closest)-gridPoints(closest-1))
         else if(nextPoint < 1)then
-        ! if we are before the min grid point, use the right derivative
+            ! if we are before the min grid point, use the right derivative
             slope=(func(2)-func(1))/(gridPoints(2)-gridPoints(1))
         else
             slope=(func(nextPoint)-func(closest))/(gridPoints(nextPoint)-gridPoints(closest))
@@ -277,17 +277,17 @@ module brentWrapper
     INTEGER :: n_s, currentState, currentCapital
     REAL(DP), allocatable, DIMENSION(:) :: a, s
     REAL(DP), allocatable, DIMENSION(:,:) :: v, y2, transition
-    REAL(DP) :: alpha,rho,beta,r
+    REAL(DP) :: alpha,rho,beta,r,w
     LOGICAL :: doSpline
 
-    PRIVATE n_s,currentState,currentCapital,a,s,v,y2,transition,alpha,beta,rho,r,doSpline
+    PRIVATE n_s,currentState,currentCapital,a,s,v,y2,transition,alpha,beta,rho,r,doSpline,w
 
 contains
 
-    subroutine wrapperCreate(grid,mytransition,mystates,myalpha,myrho,mybeta,myr)
+    subroutine wrapperCreate(grid,mytransition,mystates,myalpha,myrho,mybeta,myr,myw)
         REAL(DP), DIMENSION(:) ::grid, mystates
         REAL(DP), DIMENSION(:,:) :: mytransition
-        REAL(DP), INTENT(IN) :: myalpha,myrho,mybeta,myr
+        REAL(DP), INTENT(IN) :: myalpha,myrho,mybeta,myr,myw
 
         INTEGER :: tempCounter
 
@@ -306,6 +306,7 @@ contains
         rho=myrho
         beta=mybeta
         r=myr
+        w=myw
     end subroutine wrapperCreate
 
     subroutine wrapperInit(values,splineParams)
@@ -367,7 +368,7 @@ contains
             end if
         end do
         rp=matmul(transition(currentState,:),interpolated**alpha)
-        temp = a(currentCapital)*(1+r)+s(currentState)-x
+        temp = a(currentCapital)*(1+r)+s(currentState)*w-x
         if(temp < 0.0D0) then
             temp=0.0D0
         end if
@@ -391,10 +392,10 @@ module aiyagariSolve
     !******************
     ! These are here because of screwey splines
     !******************
-    integer, parameter                  ::  bottomChop=10   !the number of first points we want to ignore
+    integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    real*8, parameter                   ::  curv=3.0D0,a_max=200.0D0
+    real*8, parameter                   ::  curv=3.0D0,a_max=20.0D0
     real*8, parameter                   :: beta=0.90
     integer, parameter                  ::  maxit=2000
     real*8,parameter                    ::  toll=1D-8,tol2=1D-8
@@ -406,7 +407,8 @@ module aiyagariSolve
     real*8                              ::  a_min
 
 
-    real*8                              :: rho,alpha,RRA,EIS,mysigma
+    real*8                              :: rho,alpha,RRA,EIS,mysigma,wFixed=1.0D0,&
+        & rFixed=0.1D0
     real*8, dimension(n_s,n_a,maxit)    ::  v,g
     integer, save                       ::  reportNum, callCount
     PROCEDURE(template_function), POINTER :: funcParam
@@ -417,9 +419,11 @@ module aiyagariSolve
     PRIVATE phi, sigma, n_s, n_a, curv, a_max, beta, maxit, toll, doSpline
     PRIVATE s, stationary, a, a_min,rho,alpha,RRA,EIS,mysigma,v,g
     PRIVATE reportNum,funcParam,policyOutput
+    PRIVATE aggregateBonds
 
 contains
-    subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, doLinear)
+    subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, doLinear, &
+        & myR, myW)
         REAL(KIND=8), INTENT(IN) :: myrra, myeis
         PROCEDURE(template_function), POINTER, INTENT(IN) :: func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d1Func
@@ -427,6 +431,7 @@ contains
         character(LEN=*),INTENT(IN) :: file1
         INTEGER, OPTIONAL, INTENT(IN) :: every
         LOGICAL, OPTIONAL, INTENT(IN) :: doLinear
+        REAL(DP), OPTIONAL, INTENT(IN) :: myR, myW
 
         RRA=myrra
         EIS=myeis
@@ -436,7 +441,6 @@ contains
 
         rho=1-1.0D0/EIS
         alpha=1-RRA
-
         reportNum = 50
         if(PRESENT(every)) then
             reportNum=every
@@ -445,6 +449,16 @@ contains
         if(PRESENT(doLinear))then
             doSpline=.not. doLinear
         end if
+
+        if(PRESENT(myW))then
+            wFixed=myW
+            print *,"initial w: ",wFixed
+        end if
+
+        if(PRESENT(myR))then
+            rFixed=myR
+        end if
+
         policyOutput = file1
         callCount = 0
         !**************************************************************************
@@ -453,20 +467,73 @@ contains
         !**************************************************************************
         call rouwenhorst(phi,sigma,transition,s,stationary)
         s=1+s
+
     end subroutine setParams
 
-    function aggregateBonds(r) RESULT (z)
+    function aggregateBondsFixedW(r) RESULT (z)
         ! inputs: r - the interest rate to test
         ! outputs: z - the aggregate level of borrowing
         REAL(KIND=8), INTENT(IN) :: r
         REAL(KIND=8) :: z
+        REAL(DP):: totalCapital, temp
+
+        rFixed = r
+        totalCapital=aggregateBonds(r,wFixed)
+
+        !*************************************************
+        ! Given this capital, what would interest rate be
+        !*************************************************
+        if(totalCapital < 0.0D0) then
+            z=100
+            print *,callCount,"Negative capital."
+            flush(6)
+        else
+            temp=deriv1Func(totalCapital,1.0D0)
+            z=abs(r-temp)
+            print *,callCount,"K: ",totalCapital,"R(calc): ",temp, "Diff: ",z
+            flush(6)
+        end if
+    end function aggregateBondsFixedW
+
+    function aggregateBondsFixedR(w) RESULT (z)
+        ! inputs: r - the interest rate to test
+        ! outputs: z - the aggregate level of borrowing
+        REAL(KIND=8), INTENT(IN) :: w
+        REAL(KIND=8) :: z
+        REAL(DP):: totalCapital, temp
+
+        wFixed = w
+        totalCapital=aggregateBonds(rFixed,w)
+
+        !*************************************************
+        ! Given this capital, what would interest rate be
+        !*************************************************
+        if(totalCapital < 0.0D0) then
+            z=100
+            print *,callCount,"Negative capital."
+            flush(6)
+        else
+            temp=deriv2Func(totalCapital,1.0D0)
+            z=abs(w-temp)
+            print *,callCount,"K: ",totalCapital,"w(calc): ",temp, "Diff: ",z
+            flush(6)
+        end if
+
+    end function aggregateBondsFixedR
+
+    function aggregateBonds(r,w) RESULT (z)
+        ! inputs: r - the interest rate to test
+        ! outputs: z - the aggregate level of borrowing
+        REAL(KIND=8), INTENT(IN) :: r,w
+        REAL(KIND=8) :: z
+
         INTEGER :: iterCount, i
         real*8  ::  incr, totalCapital
         real*8, dimension(n_s,n_a-bottomChop-topChop)          ::  steadyStateCapital
 
-!        a_min = max(-s(1)/r+1.0D0,-3.0D0)
         callCount = callCount+1
-        a_min = 0
+        a_min = min(-(s(1)*wFixed)/r + 1,0.0D0)
+
         !**************************************************************************
         ! We set up the grid of asset values based on the curvature, curv
         ! the minimum and maximum values in the grid a_min a_max
@@ -486,9 +553,16 @@ contains
         end do
         g=0D0
 
-        call wrapperCreate(a,transition,s,alpha,rho,beta,r)
+        call wrapperCreate(a,transition,s,alpha,rho,beta,r,w)
         iterCount=getPolicyForInterest(r)
         call wrapperDestroy()
+
+        open(unit=1,file=policyOutput)
+        write(1,*) a(:)
+        do i=1,n_s
+            write(1,*) g(i,:,iterCount)
+        end do
+        close(1)
 
         !*****************************************************
         ! find the steady state capital
@@ -500,19 +574,7 @@ contains
         !**************************************************
         totalCapital = dot_product(sum(steadyStateCapital,dim=1),a(bottomChop+1:n_a-topChop))
 
-        !*************************************************
-        ! Given this capital, what would interest rate be
-        !*************************************************
-        if(totalCapital < 0.0D0) then
-            z=100
-            print *,callCount,"Negative capital."
-            flush(6)
-        else
-            incr=deriv1Func(totalCapital,1.0D0)
-            z=abs(r-incr)
-            print *,callCount,"K: ",totalCapital,"R(calc): ",incr, "Diff: ",z
-            flush(6)
-        end if
+        z = totalCapital
 
     end function aggregateBonds
 
@@ -539,7 +601,7 @@ contains
                     print *,capitalPolicy(i,j-1),capitalPolicy(i,j)
                     stop 0
                 end if
-             end do
+            end do
         end do
 
         !setting initial guess to uniform dist across asset grid. First we have it
@@ -618,13 +680,14 @@ contains
                         flush(6)
                         stop 0
                     end if
+
+                    f_n(i,j)=temp
                 end do
             end do
 
             diff = maxval(abs(f_n - f_o))
         end do
 
-        print *,"Found SS: ",counter
         !normalize to account for rounding errors
         do i=1,n_s
             f_n(i,:)=f_n(i,:)*stationary(i)
@@ -636,6 +699,13 @@ contains
         do i=1,n_s
             statDist(i,1) = max(0.0D0,stationary(i)-sum(statDist(i,:)))
         end do
+
+        open(unit=1,file="distrib")
+        write(1,*) newCapital
+        do i=1,n_s
+            write(1,*) statDist(i,:)
+        end do
+        close(1)
 
     end subroutine findSteadyState
 
@@ -667,7 +737,7 @@ contains
                         else
                             kr1=g(i,it-1,iter)
                         end if
-                        kr3=min(a(it)*(1+r)+s(i),a(n_a))
+                        kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
                         kr2=(kr1+kr3)/2D0
                         v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
                     end do
@@ -678,7 +748,7 @@ contains
                 do i=1,n_s
                     do it=1,n_a
                         kr1=a(1)
-                        kr3=min(a(it)*(1+r)+s(i),a(n_a))
+                        kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
                         kr2=(kr1+kr3)/2D0
                         v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
                     end do
@@ -697,6 +767,7 @@ contains
         end do
 
         y=min(iter,maxit)
+
     end function         getPolicyForInterest
 
 end module aiyagariSolve
@@ -710,7 +781,7 @@ program main
     use brentWrapper
 
     REAL(DP) :: RRA, EIS, intDiff,xmin
-    REAL(DP) :: capitalShare = 0.8D0
+    REAL(DP) :: capitalShare = 0.5D0
     PROCEDURE(template_function), POINTER :: func
     PROCEDURE(template_function2), POINTER :: d1func, d2func
 
@@ -719,29 +790,32 @@ program main
     func => valueFunction
     d1func => d1prod
     d2func => d2prod
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, .FALSE.)
 
-    func => aggregateBonds
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, .FALSE., 0.1D0, 1.0D0)
+    func => aggregateBondsFixedW
     intDiff=brent(func,0.01D0,0.15D0,0.5D0,1.0D-4,xmin)
-
     print *,intDiff, xmin
+
+!    print *,aggregateBondsFixedR(1.0D0)
+!    func => aggregateBondsFixedR
+!    intDiff=brent(func,0.01D0,0.15D0,0.5D0,1.0D-4,xmin)
 
 contains
     function production(capital,labour) RESULT(y)
-            REAL(KIND=8), INTENT(IN) :: capital, labour
-            REAL(KIND=8) :: y
+        REAL(KIND=8), INTENT(IN) :: capital, labour
+        REAL(KIND=8) :: y
         y=capital**capitalShare*labour**(1-capitalShare)
     end function production
 
     function d1prod(capital,labour) RESULT(y)
-            REAL(KIND=8), INTENT(IN) :: capital, labour
-            REAL(KIND=8) :: y
+        REAL(KIND=8), INTENT(IN) :: capital, labour
+        REAL(KIND=8) :: y
         y=capitalShare*capital**(capitalShare-1)*labour**(1-capitalShare)
     end function d1prod
 
     function d2prod(capital,labour) RESULT(y)
-            REAL(KIND=8), INTENT(IN) :: capital, labour
-            REAL(KIND=8) :: y
+        REAL(KIND=8), INTENT(IN) :: capital, labour
+        REAL(KIND=8) :: y
         y=(1-capitalShare)*capital**capitalShare*labour**(-capitalShare)
     end function d2prod
 end program main
