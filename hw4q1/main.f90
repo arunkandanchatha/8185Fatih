@@ -216,40 +216,28 @@ contains
         REAL(DP) :: z
 
         !local variables
-        REAL(DP) :: baseGrid, nextGrid, fBase, fNext
         REAL(DP) :: slope
         integer, DIMENSION(1) :: indexInGridTemp
-        integer :: indexInGrid, nextPoint
+        integer :: closest, nextPoint
 
         indexInGridTemp=minloc(abs(evalPoint-gridPoints))
-        indexInGrid = indexInGridTemp(1)
-        if(evalPoint>gridPoints(indexInGrid)) then
-            nextPoint = indexInGrid + 1
+        closest = indexInGridTemp(1)
+        if(evalPoint>gridPoints(closest)) then
+            nextPoint = closest + 1
         else
-            nextPoint = indexInGrid
-            indexInGrid = indexInGrid - 1
+            nextPoint = closest - 1
         end if
 
         ! if we are past the max grid point, use the left derivative
-        if( (indexInGrid==size(gridPoints)) .and. (evalPoint>gridPoints(indexInGrid)) )then
-            nextPoint=indexInGrid
-            indexInGrid=indexInGrid-1
-        endif
-
+        if(nextPoint > size(gridPoints))then
+            slope=(func(closest)-func(closest-1))/(gridPoints(closest)-gridPoints(closest-1))
+        else if(nextPoint < 1)then
         ! if we are before the min grid point, use the right derivative
-        if( (indexInGrid==1) .and. (evalPoint<gridPoints(indexInGrid)) )then
-            nextPoint=indexInGrid
-            indexInGrid=indexInGrid+1
+            slope=(func(2)-func(1))/(gridPoints(2)-gridPoints(1))
+        else
+            slope=(func(nextPoint)-func(closest))/(gridPoints(nextPoint)-gridPoints(closest))
         endif
-
-        baseGrid=gridPoints(indexInGrid)
-        nextGrid=gridPoints(nextPoint)
-
-        fBase = func(indexInGrid)
-        fNext = func(nextPoint)
-        slope = (fNext-fBase)/(nextGrid-baseGrid)
-
-        z=fBase+slope*(evalPoint-baseGrid)
+        z=func(closest)+slope*(evalPoint-gridPoints(closest))
     END FUNCTION linear
 
     SUBROUTINE shft(a,b,c,d)
@@ -344,6 +332,7 @@ contains
     subroutine wrapperDestroy()
         deallocate(a)
         deallocate(transition)
+        deallocate(s)
     end subroutine wrapperDestroy
 
     function callBrent(state,capital, myfunc, kr1, kr2, kr3, tol, minPoint) RESULT (y)
@@ -396,20 +385,20 @@ module aiyagariSolve
     implicit none
 
     real*8, parameter                   ::  phi=.9D0,sigma=.4D0
-    integer, parameter                  ::  n_s=3
-    integer, parameter                  ::  n_a=216
+    integer, parameter                  ::  n_s=7
+    integer, parameter                  ::  n_a=316
 
     !******************
     ! These are here because of screwey splines
     !******************
     integer, parameter                  ::  bottomChop=10   !the number of first points we want to ignore
-    integer, parameter                  ::  topChop=5       !the number of end points we want to ignore
+    integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    real*8, parameter                   ::  curv=2.0D0,a_max=100.0D0
+    real*8, parameter                   ::  curv=3.0D0,a_max=200.0D0
     real*8, parameter                   :: beta=0.90
     integer, parameter                  ::  maxit=2000
     real*8,parameter                    ::  toll=1D-8,tol2=1D-8
-    LOGICAL                             :: doSpline = .FALSE.
+    LOGICAL                             :: doSpline = .TRUE.
 
     real*8, dimension(n_s)              ::  s,stationary
     real*8, dimension(n_s,n_s)          ::  transition
@@ -419,8 +408,9 @@ module aiyagariSolve
 
     real*8                              :: rho,alpha,RRA,EIS,mysigma
     real*8, dimension(n_s,n_a,maxit)    ::  v,g
-    integer                             ::  reportNum
+    integer, save                       ::  reportNum, callCount
     PROCEDURE(template_function), POINTER :: funcParam
+    PROCEDURE(template_function2), POINTER :: deriv1Func, deriv2Func
 
     character(LEN=20)                   :: policyOutput
 
@@ -429,9 +419,11 @@ module aiyagariSolve
     PRIVATE reportNum,funcParam,policyOutput
 
 contains
-    subroutine setParams(myrra, myeis, func, file1, every, doLinear)
+    subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, doLinear)
         REAL(KIND=8), INTENT(IN) :: myrra, myeis
         PROCEDURE(template_function), POINTER, INTENT(IN) :: func
+        PROCEDURE(template_function2), POINTER, INTENT(IN) :: d1Func
+        PROCEDURE(template_function2), POINTER, INTENT(IN) :: d2Func
         character(LEN=*),INTENT(IN) :: file1
         INTEGER, OPTIONAL, INTENT(IN) :: every
         LOGICAL, OPTIONAL, INTENT(IN) :: doLinear
@@ -439,6 +431,8 @@ contains
         RRA=myrra
         EIS=myeis
         funcParam => func
+        deriv1Func => d1Func
+        deriv2Func => d2Func
 
         rho=1-1.0D0/EIS
         alpha=1-RRA
@@ -452,14 +446,13 @@ contains
             doSpline=.not. doLinear
         end if
         policyOutput = file1
-
+        callCount = 0
         !**************************************************************************
         ! We use the rowenhorst method to obtain the transition matrix GAMMA,
         ! the stationary probability distribution stationary, and the shocks s.
         !**************************************************************************
         call rouwenhorst(phi,sigma,transition,s,stationary)
         s=1+s
-
     end subroutine setParams
 
     function aggregateBonds(r) RESULT (z)
@@ -468,11 +461,12 @@ contains
         REAL(KIND=8), INTENT(IN) :: r
         REAL(KIND=8) :: z
         INTEGER :: iterCount, i
-        real*8                              ::  incr
+        real*8  ::  incr, totalCapital
         real*8, dimension(n_s,n_a-bottomChop-topChop)          ::  steadyStateCapital
 
-        a_min = max(-s(1)/r+1.0D0,-3.0D0)
-
+!        a_min = max(-s(1)/r+1.0D0,-3.0D0)
+        callCount = callCount+1
+        a_min = 0
         !**************************************************************************
         ! We set up the grid of asset values based on the curvature, curv
         ! the minimum and maximum values in the grid a_min a_max
@@ -501,19 +495,25 @@ contains
         !*****************************************************
         call findSteadyState(g(:,:,iterCount),steadyStateCapital)
 
-        do iterCount=1,n_s
-            print *,steadyStateCapital(iterCount,:)
-        end do
         !**************************************************
-        ! now, calculate total borrowing using policy functions
+        ! now, calculate total capital
         !**************************************************
-        !TO DO
+        totalCapital = dot_product(sum(steadyStateCapital,dim=1),a(bottomChop+1:n_a-topChop))
 
-        !***************************************************
-        ! return the absolute value of total borrowing
-        !***************************************************
-        !TO DO
-        z=0.0D0
+        !*************************************************
+        ! Given this capital, what would interest rate be
+        !*************************************************
+        if(totalCapital < 0.0D0) then
+            z=100
+            print *,callCount,"Negative capital."
+            flush(6)
+        else
+            incr=deriv1Func(totalCapital,1.0D0)
+            z=abs(r-incr)
+            print *,callCount,"K: ",totalCapital,"R(calc): ",incr, "Diff: ",z
+            flush(6)
+        end if
+
     end function aggregateBonds
 
     subroutine findSteadyState(capitalPolicyOrig, statDist)
@@ -523,13 +523,24 @@ contains
         REAL(DP), dimension(n_s,n_a), INTENT(IN) :: capitalPolicyOrig
         real(DP), dimension(n_s,capitalCount), intent(out) :: statDist
         real(DP), dimension(n_s,capitalCount) ::f_o, f_o_hat, f_n
-        real(DP) :: diff
+        real(DP) :: diff, temp
         INTEGER :: i,j, counter
         REAL(DP), dimension(n_s,capitalCount) :: capitalPolicy
         REAL(DP), dimension(capitalCount) :: newCapital
 
         newCapital = a(bottomChop+1:n_a-topChop)
         capitalPolicy = capitalPolicyOrig(:,bottomChop+1:n_a-topChop)
+
+        !* check monotonicity of capital policy
+        do i=1,n_s
+            do j=2,capitalCount
+                if(capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
+                    print *,"not monotonic.", i, j
+                    print *,capitalPolicy(i,j-1),capitalPolicy(i,j)
+                    stop 0
+                end if
+             end do
+        end do
 
         !setting initial guess to uniform dist across asset grid. First we have it
         !a cdf, and then convert to the appropriate pdf
@@ -546,23 +557,12 @@ contains
         counter = 0
         do while((diff>tol2) .and. (counter<maxit))
             counter = counter + 1
+
             f_o=f_n
 
-                do i=1,n_s
-                do j=1,capitalCount
-                    if (j>1) then
-                    if (capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
-                        print *,"non-monotonic capital: ", counter, capitalCount
-                        print *,"j-1:",j-1,"val: ",capitalPolicy(i,j-1)
-                        print *,"j:",j,"val: ",capitalPolicy(i,j)
-                        stop
-                    end if
-                    end if
-                end do
-                end do
             do i=1,n_s
                 do j=1,capitalCount
-                    f_o_hat(i,j) = linear(f_o(i,:),capitalPolicy(i,:),a(j))
+                    f_o_hat(i,j) = linear(f_o(i,:),capitalPolicy(i,:),newCapital(j))
                 end do
             end do
 
@@ -605,13 +605,26 @@ contains
 
             f_n = matmul(transpose(transition), f_o_hat)
 
+            !* Fix so that total cdf is 1
+            do i=1,n_s
+                do j=1,capitalCount
+                    temp = f_n(i,j) / f_n(i,capitalCount)
+
+                    if (isnan(temp))then
+                        print *,"nan: ",i,j, counter
+                        print *,f_n(i,j),f_n(i,capitalCount)
+                        print *,f_o_hat(i,:)
+                        print *,f_o_hat(1,j),f_o_hat(2,j),f_o_hat(3,j)
+                        flush(6)
+                        stop 0
+                    end if
+                end do
+            end do
+
             diff = maxval(abs(f_n - f_o))
-            if (mod(counter,50)==0) then
-                print*,"findSteadyState Iteration: ",counter, " diff: ",diff
-            end if
         end do
 
-        print *,"done: ",counter
+        print *,"Found SS: ",counter
         !normalize to account for rounding errors
         do i=1,n_s
             f_n(i,:)=f_n(i,:)*stationary(i)
@@ -620,7 +633,9 @@ contains
         do i=capitalCount,2,-1
             statDist(:,i) = statDist(:,i) - statDist(:,i-1)
         end do
-        statDist(:,1) = stationary-sum(statDist(:,2:capitalCount),dim=2)
+        do i=1,n_s
+            statDist(i,1) = max(0.0D0,stationary(i)-sum(statDist(i,:)))
+        end do
 
     end subroutine findSteadyState
 
@@ -646,11 +661,14 @@ contains
                 call wrapperInit(v(:,:,iter-1),y2)
                 do i=1,n_s
                     do it=1,n_a
-                        kr1=a(1)
+                        !ensure monotone policy function
+                        if(it==1)then
+                            kr1=a(1)
+                        else
+                            kr1=g(i,it-1,iter)
+                        end if
                         kr3=min(a(it)*(1+r)+s(i),a(n_a))
                         kr2=(kr1+kr3)/2D0
-                        !                        splineD=splineDeriv(a, v(i,:,iter-1), y2(i,:))
-                        !                        v(i,it,iter)=-dbrent(funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
                         v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
                     end do
                 end do
@@ -691,12 +709,39 @@ program main
     use aiyagariSolve
     use brentWrapper
 
-    REAL(DP) :: RRA, EIS
+    REAL(DP) :: RRA, EIS, intDiff,xmin
+    REAL(DP) :: capitalShare = 0.8D0
     PROCEDURE(template_function), POINTER :: func
+    PROCEDURE(template_function2), POINTER :: d1func, d2func
 
     RRA=2.0D0
     EIS=2.0D0
     func => valueFunction
-    call setParams(RRA, EIS, func, "policyR2E2", 50, .FALSE.)
-    print *,aggregateBonds(0.001D0)
+    d1func => d1prod
+    d2func => d2prod
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, .FALSE.)
+
+    func => aggregateBonds
+    intDiff=brent(func,0.01D0,0.15D0,0.5D0,1.0D-4,xmin)
+
+    print *,intDiff, xmin
+
+contains
+    function production(capital,labour) RESULT(y)
+            REAL(KIND=8), INTENT(IN) :: capital, labour
+            REAL(KIND=8) :: y
+        y=capital**capitalShare*labour**(1-capitalShare)
+    end function production
+
+    function d1prod(capital,labour) RESULT(y)
+            REAL(KIND=8), INTENT(IN) :: capital, labour
+            REAL(KIND=8) :: y
+        y=capitalShare*capital**(capitalShare-1)*labour**(1-capitalShare)
+    end function d1prod
+
+    function d2prod(capital,labour) RESULT(y)
+            REAL(KIND=8), INTENT(IN) :: capital, labour
+            REAL(KIND=8) :: y
+        y=(1-capitalShare)*capital**capitalShare*labour**(-capitalShare)
+    end function d2prod
 end program main
