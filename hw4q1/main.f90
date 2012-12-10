@@ -509,8 +509,7 @@ module aiyagariSolve
     real*8, dimension(n_s,n_s)          ::  transition
     real*8, dimension(n_a)              ::  a
     real*8                              ::  a_min
-
-
+    real*8                              :: capShare
     real*8                              :: rho,alpha,RRA,EIS,mysigma,wFixed=1.0D0,&
         & rFixed=0.1D0
     real*8, dimension(n_s,n_a,maxit)    ::  v,g
@@ -526,9 +525,9 @@ module aiyagariSolve
     PRIVATE aggregateBonds
 
 contains
-    subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, doLinear, &
-        & myR, myW)
-        REAL(KIND=8), INTENT(IN) :: myrra, myeis
+    subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, &
+                & capitalShare, doLinear, myR, myW)
+        REAL(KIND=8), INTENT(IN) :: myrra, myeis,capitalShare
         PROCEDURE(template_function), POINTER, INTENT(IN) :: func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d1Func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d2Func
@@ -537,6 +536,7 @@ contains
         LOGICAL, OPTIONAL, INTENT(IN) :: doLinear
         REAL(DP), OPTIONAL, INTENT(IN) :: myR, myW
 
+        capShare=capitalShare
         RRA=myrra
         EIS=myeis
         funcParam => func
@@ -581,6 +581,8 @@ contains
         REAL(DP):: totalCapital, temp
 
         rFixed = r
+        temp = (r/capShare)**(1.0D0/(capShare-1))
+        wFixed=(1-capShare)*temp**capShare
         totalCapital=aggregateBonds(r,wFixed)
 
         !*************************************************
@@ -588,71 +590,11 @@ contains
         !*************************************************
         if(totalCapital < 0.0D0) then
             z=100
-            print *,callCount,"Negative capital."
-            flush(6)
         else
             temp=deriv1Func(totalCapital,1.0D0)
             z=abs(r-temp)
-            print *,callCount,"K: ",totalCapital,"R(calc): ",temp, "Diff: ",z
-            flush(6)
         end if
     end function aggregateBondsFixedW
-
-    function aggregateBondsFixedR(w) RESULT (z)
-        ! inputs: r - the interest rate to test
-        ! outputs: z - the aggregate level of borrowing
-        REAL(KIND=8), INTENT(IN) :: w
-        REAL(KIND=8) :: z
-        REAL(DP):: totalCapital, temp
-
-        wFixed = w
-        totalCapital=aggregateBonds(rFixed,w)
-
-        !*************************************************
-        ! Given this capital, what would interest rate be
-        !*************************************************
-        if(totalCapital < 0.0D0) then
-            z=100
-            print *,callCount,"Negative capital."
-            flush(6)
-        else
-            temp=deriv2Func(totalCapital,1.0D0)
-            z=abs(w-temp)
-            print *,callCount,"K: ",totalCapital,"w(calc): ",temp, "Diff: ",z
-            flush(6)
-        end if
-
-    end function aggregateBondsFixedR
-
-    function aggregateBondsVaryBoth(point) RESULT (z)
-        ! inputs: r - the interest rate to test
-        ! outputs: z - the aggregate level of borrowing
-        REAL(KIND=8), DIMENSION(2), INTENT(IN) :: point
-        REAL(KIND=8) :: z
-
-        REAL(DP):: totalCapital, temp, temp2
-
-        rFixed = point(1)
-        wFixed = point(2)
-        totalCapital=aggregateBonds(rFixed,wFixed)
-
-        !*************************************************
-        ! Given this capital, what would interest rate be
-        !*************************************************
-        if(totalCapital < 0.0D0) then
-            z=100
-            print *,callCount,"Negative capital."
-            flush(6)
-        else
-            temp=deriv1Func(totalCapital,1.0D0)
-            temp2=deriv2Func(totalCapital,1.0D0)
-
-            z=sqrt((rFixed-temp)**2.0D0+(wFixed-temp2)**2.0D0)
-            print *,callCount,"K: ",totalCapital,"R(calc): ",temp, "W(calc)", temp2, &
-                    &"Diff: ",z
-            flush(6)
-        end if
-    end function aggregateBondsVaryBoth
 
     function aggregateBonds(r,w) RESULT (z)
         ! inputs: r - the interest rate to test
@@ -930,27 +872,13 @@ program main
     d1func => d1prod
     d2func => d2prod
 
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, .FALSE., 0.1D0, 1.0D0)
-#if 0
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, capitalShare,&
+                    &.FALSE., 0.1D0, 1.0D0)
+
     func => aggregateBondsFixedW
-    s=brent(func,0.01D0,0.125D0,0.5D0,1.0D-4,startPoint(1))
-    print *,intDiff, startPoint(1)
+    intDiff=brent(func,0.01D0,0.125D0,0.5D0,1.0D-4,xmin)
+    print *,xmin
 
-    func => aggregateBondsFixedR
-    intDiff=brent(func,0.01D0,1.0D0,10.0D0,1.0D-4,startPoint(2))
-    print *,intDiff, startPoint(2)
-#else
-    func2=>aggregateBondsVaryBoth
-    startPoint(1)=0.0984648408653547164D0
-    startPoint(2)=1.3576254410966657D0
-    startPoint2 = getSimplexAround(startPoint, 0.05D0)
-
-    startVals(1)=func2(startPoint2(1,:))
-    startVals(2)=func2(startPoint2(2,:))
-    startVals(3)=func2(startPoint2(3,:))
-
-    CALL amoeba(startPoint2,startVals, 1.0D-4,func2,temp2)
-#endif
 
 contains
     function production(capital,labour) RESULT(y)
