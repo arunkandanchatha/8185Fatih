@@ -743,7 +743,6 @@ contains
         end if
 
         allData=.false.
-
         !setting initial guess to uniform dist across asset grid. First we have it
         !a cdf, and then convert to the appropriate pdf
         do i=1,n_s
@@ -1063,6 +1062,7 @@ contains
                     do j=1,n_s
                         do it=1,mysize-1
                             call MPI_SEND(v(j,:,iter), n_a, MPI_REAL8, it, 1000, MPI_COMM_WORLD, ierr)
+                            call MPI_SEND(g(j,:,iter), n_a, MPI_REAL8, it, 1000, MPI_COMM_WORLD, ierr)
                         end do
                     end do
                 else
@@ -1075,6 +1075,13 @@ contains
                             print *,"Error, don't know what value function we received,",stat(MPI_TAG)
                             stop 0
                         end if
+
+                        call MPI_RECV(g(j,:,iter), n_a, MPI_REAL8, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
+                        if(stat(MPI_TAG) .ne. 1000)then
+                            print *,"Error, don't know what policy function we received,",stat(MPI_TAG)
+                            stop 0
+                        end if
+
                     end do
                     allData = .false.
                 end if
