@@ -318,14 +318,27 @@ contains
         REAL(DP),DIMENSION(size(gridPoints)), INTENT(in) :: func
         REAL(DP), INTENT(in) :: evalPoint
         REAL(DP) :: z
+        REAL :: eps=epsilon(1.0D0)
 
         !local variables
         REAL(DP) :: slope
         integer, DIMENSION(1) :: indexInGridTemp
         integer :: closest, nextPoint
+        LOGICAL :: cond1, cond2
 
         indexInGridTemp=minloc(abs(evalPoint-gridPoints))
         closest = indexInGridTemp(1)
+
+        !*****
+        ! Just return the function value if we are right on the point
+        !******
+        cond1 = evalPoint .gt. (gridPoints(closest)-eps)
+        cond2 = evalPoint .lt. (gridPoints(closest)+eps)
+        if(cond1 .and. cond2) then
+            z = func(closest)
+            return
+        end if
+
         if(evalPoint>gridPoints(closest)) then
             nextPoint = closest + 1
         else
@@ -342,6 +355,11 @@ contains
             slope=(func(nextPoint)-func(closest))/(gridPoints(nextPoint)-gridPoints(closest))
         endif
         z=func(closest)+slope*(evalPoint-gridPoints(closest))
+
+        if(isNAN(z))then
+            print *,"Error. NaN in linear.",evalPoint,func(closest),slope,gridPoints(closest)
+            stop 0
+        end if
     END FUNCTION linear
 
     SUBROUTINE shft(a,b,c,d)
@@ -489,6 +507,7 @@ module aiyagariSolve
     USE brentWrapper
     implicit none
 
+    INCLUDE 'mpif.h'
     real*8, parameter                   ::  phi=.9D0,sigma=.4D0
     integer, parameter                  ::  n_s=7
     integer, parameter                  ::  n_a=316
@@ -526,7 +545,7 @@ module aiyagariSolve
 
 contains
     subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, &
-                & capitalShare, doLinear, myR, myW)
+        & capitalShare, doLinear, myR, myW)
         REAL(KIND=8), INTENT(IN) :: myrra, myeis,capitalShare
         PROCEDURE(template_function), POINTER, INTENT(IN) :: func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d1Func
@@ -788,9 +807,17 @@ contains
         REAL(KIND=8), INTENT(IN) :: r
         INTEGER :: y
         INTEGER ::  i,it,j,iter
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
         REAL(DP) :: tempD,tempD2
         real*8, dimension(n_s,n_a)          ::  y2
         real*8                              ::  kr1,kr2,kr3
+
+        !********
+        !Variables for MPI
+        !**********
+        INTEGER :: rank, mysize, source, dest, tag, mpicounter, ierr
+        REAL(DP), dimension(n_a*2) :: inmsg
+        LOGICAL :: allData=.false.
 
         !**************************************************************************
         ! we begin the iteration
@@ -804,19 +831,64 @@ contains
                 end do
 
                 call wrapperInit(v(:,:,iter-1),y2)
-                do i=1,n_s
-                    do it=1,n_a
-                        !ensure monotone policy function
-                        if(it==1)then
-                            kr1=a(1)
-                        else
-                            kr1=g(i,it-1,iter)
+                CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+                CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
+
+                if(rank == 0) then
+                    do i=1,n_s
+                        dest = mod(i,mysize);
+                        if(dest .ne. 0) then
+                            tag = i
+                            call MPI_SEND(i, 1, MPI_INTEGER, dest, tag, MPI_COMM_WORLD, ierr)
+                        else !if (dest .ne. 0)
+                            do it=1,n_a
+                                !ensure monotone policy function
+                                if(it==1)then
+                                    kr1=a(1)
+                                else
+                                    kr1=g(i,it-1,iter)
+                                end if
+                                kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
+                                kr2=(kr1+kr3)/2D0
+                                v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
+                            end do
+                            do j=i-(mysize-1),i-1
+                                source = mod(j,mysize)
+                                call MPI_RECV(inmsg, 2*n_a, MPI_REAL8, source, j, MPI_COMM_WORLD, stat, ierr)
+                                v(j,:,iter) = inmsg(1:n_a)
+                                g(j,:,iter) = inmsg(n_a+1:2*n_a)
+                            end do
                         end if
-                        kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
-                        kr2=(kr1+kr3)/2D0
-                        v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
                     end do
-                end do
+                else !if(rank == 0)
+                    do while(.not. allData)
+                        source = 0
+                        call MPI_RECV(i, 1, MPI_INTEGER, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
+                        do it=1,n_a
+                            !ensure monotone policy function
+                            if(it==1)then
+                                kr1=a(1)
+                            else
+                                kr1=g(i,it-1,iter)
+                            end if
+                            kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
+                            kr2=(kr1+kr3)/2D0
+                            v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
+                        end do
+                        inmsg(1:n_a)=v(i,:,iter)
+                        inmsg(n_a+1:2*n_a)=g(i,:,iter)
+                        dest = 0
+                        tag = i
+                        call MPI_SEND(inmsg, 2*n_a, MPI_REAL8, dest, tag, MPI_COMM_WORLD, ierr)
+
+                        !***************
+                        !check to see if we should expect any more
+                        !***************
+                        if(tag+mysize>n_s)then
+                            allData=.true.
+                        end if
+                    end do
+                end if
                 call wrapperClean()
             else
                 call wrapperInit(v(:,:,iter-1))
@@ -830,9 +902,44 @@ contains
                 end do
                 call wrapperClean()
             end if
-            if(mod(iter,reportNum)==0)then
+            if(doSpline) then
+                if(rank == 0) then
+                    !*********************
+                    ! we need to capture things we sent
+                    !*********************
+                    mpicounter=mod(n_s,mysize)-1
+                    do j=n_s-mpicounter,n_s
+                        source = mod(j,mysize)
+                        call MPI_RECV(inmsg, 2*n_a, MPI_REAL8, source, j, MPI_COMM_WORLD, stat, ierr)
+                        v(j,:,iter) = inmsg(1:n_a)
+                        g(j,:,iter) = inmsg(n_a+1:2*n_a)
+                    end do
+                    !***************************
+                    ! Now, we need to communicate the value function for this iteration across all programs
+                    !***************************
+
+                    do j=1,n_s
+                        do it=1,mysize-1
+                            call MPI_SEND(v(j,:,iter), n_a, MPI_REAL8, it, 1000, MPI_COMM_WORLD, ierr)
+                        end do
+                    end do
+                else
+                    source = 0
+                    do j=1,n_s
+                        call MPI_RECV(v(j,:,iter), n_a, MPI_REAL8, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
+
+                        !Check tag to make sure it is what we have set as "value function", i.e. -1
+                        if(stat(MPI_TAG) .ne. 1000)then
+                            print *,"Error, don't know what value function we received,",stat(MPI_TAG)
+                            stop 0
+                        end if
+                    end do
+                    allData = .false.
+                end if
+            end if
+            if( (mod(iter,reportNum)==0) .and. (rank==0))then
                 print *,"r:",r,"w:",wFixed,"iter: ",iter,&
-                        &"diff: ",maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)
+                    &"diff: ",maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)
                 flush(6)
             end if
             if (     maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)    .lt.    toll     ) then
@@ -864,7 +971,7 @@ program main
     REAL(DP), DIMENSION(2) :: startPoint
     REAL(DP), DIMENSION(3,2) :: startPoint2
     REAL(DP), DIMENSION(3) :: startVals
-    INTEGER :: temp2
+    INTEGER :: temp2, ierr
 
     RRA=2.0D0
     EIS=2.0D0
@@ -873,10 +980,13 @@ program main
     d2func => d2prod
 
     call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, capitalShare,&
-                    &.FALSE., 0.1D0, 1.0D0)
+        &.FALSE., 0.1D0, 1.0D0)
 
     func => aggregateBondsFixedW
+
+    CALL MPI_INIT(ierr)
     intDiff=brent(func,0.01D0,0.125D0,0.5D0,1.0D-4,xmin)
+    CALL MPI_FINALIZE(ierr)
     print *,xmin
 
 
