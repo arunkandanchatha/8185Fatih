@@ -357,7 +357,8 @@ contains
         z=func(closest)+slope*(evalPoint-gridPoints(closest))
 
         if(isNAN(z))then
-            print *,"Error. NaN in linear.",evalPoint,func(closest),slope,gridPoints(closest)
+            print *,"Error. NaN in linear.",evalPoint,func(closest),slope,gridPoints(closest),gridPoints(nextPoint)
+            print *,closest, nextPoint
             stop 0
         end if
     END FUNCTION linear
@@ -684,19 +685,59 @@ contains
         REAL(DP), dimension(n_s,capitalCount) :: capitalPolicy
         REAL(DP), dimension(capitalCount) :: newCapital
 
+        !********
+        !Variables for MPI
+        !**********
+        INTEGER :: rank, mysize, source, dest, tag, mpicounter, ierr, it
+        REAL(DP), dimension(capitalCount) :: inmsg
+        LOGICAL :: allData=.false.
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+
         newCapital = a(bottomChop+1:n_a-topChop)
         capitalPolicy = capitalPolicyOrig(:,bottomChop+1:n_a-topChop)
 
         !* check monotonicity of capital policy
-        do i=1,n_s
-            do j=2,capitalCount
-                if(capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
-                    print *,"not monotonic.", i, j
-                    print *,capitalPolicy(i,j-1),capitalPolicy(i,j)
-                    stop 0
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+        CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
+
+        if(rank == 0) then
+            do i=1,n_s
+                dest = mod(i,mysize);
+                if(dest .ne. 0) then
+                    tag = i
+                    call MPI_SEND(i, 1, MPI_INTEGER, dest, tag, MPI_COMM_WORLD, ierr)
+                else !if (dest .ne. 0)
+                    do j=2,capitalCount
+                        if(capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
+                            print *,"not monotonic.", i, j
+                            print *,capitalPolicy(i,j-1),capitalPolicy(i,j)
+                            stop 0
+                        end if
+                    end do
                 end if
             end do
-        end do
+        else !if(rank==0)
+            do while(.not. allData)
+                source = 0
+                call MPI_RECV(i, 1, MPI_INTEGER, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
+                do j=2,capitalCount
+                    if(capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
+                        print *,"not monotonic.", i, j
+                        print *,capitalPolicy(i,j-1),capitalPolicy(i,j)
+                        stop 0
+                    end if
+                end do
+
+                !***************
+                !check to see if we should expect any more
+                !***************
+                if(i+mysize>n_s)then
+                    allData=.true.
+                end if
+            end do
+        end if
+
+        allData=.false.
 
         !setting initial guess to uniform dist across asset grid. First we have it
         !a cdf, and then convert to the appropriate pdf
@@ -722,42 +763,138 @@ contains
                 end do
             end do
 
-            ! need to make sure monotonic and bounded between 0 and 1
-            do i=1,n_s
-                diff=-1e-5
-                do j=1,capitalCount
-                    if(f_o_hat(i,j)>1.0_dp) then
-                        f_o_hat(i,j)=1.0_dp
-                    else if (f_o_hat(i,j)<0.0_dp) then
-                        f_o_hat(i,j)=0.0D0
-                    else if (isnan(f_o_hat(i,j))) then
-                        print *, "Error: f_o_hat is NAN. Counter:",counter," shock: ",i,"element: ",j
-                        print *,"Capital Grid"
-                        print *,newCapital(:)
-                        print *,"Policy Fn"
-                        print *,capitalPolicy(j,:)
-                        print *,"f_o"
-                        print *,f_o(i,:)
-                        print *,"f_o_hat"
-                        print *,f_o_hat(i,:)
-                        stop 0
-                    end if
+                ! need to make sure monotonic and bounded between 0 and 1
+            if(rank == 0) then
+                do i=1,n_s
+                    dest = mod(i,mysize);
+                    if(dest .ne. 0) then
+                        tag = i
+                        call MPI_SEND(i, 1, MPI_INTEGER, dest, tag, MPI_COMM_WORLD, ierr)
+                    else !if (dest .ne. 0)
+                        diff=-1e-5
+                        do j=1,capitalCount
+                            if(f_o_hat(i,j)>1.0_dp) then
+                                f_o_hat(i,j)=1.0_dp
+                            else if (f_o_hat(i,j)<0.0_dp) then
+                                f_o_hat(i,j)=0.0D0
+                            else if (isnan(f_o_hat(i,j))) then
+                                print *, "Error: f_o_hat is NAN. Counter:",counter," shock: ",i,"element: ",j
+                                print *,"Capital Grid"
+                                print *,newCapital(:)
+                                print *,"Policy Fn"
+                                print *,capitalPolicy(j,:)
+                                print *,"f_o"
+                                print *,f_o(i,:)
+                                print *,"f_o_hat"
+                                print *,f_o_hat(i,:)
+                                stop 0
+                            end if
 
-                    !add a test: if non-monotonic, fail
-                    if(diff>f_o_hat(i,j)) then
-                        print *, "Error: Non-monotonic cdf function. Counter:",counter," element: ", j, " shock: ",i
-                        print *,"value_old: ",diff, " value_new: ",f_o_hat(i,j)
-                        print *,"f_o"
-                        print *,capitalPolicy(i,:)
-                        print *,f_o(i,:)
-                        print *,"f_o_hat"
-                        print *,newCapital
-                        print *,f_o_hat(i,:)
+                            !add a test: if non-monotonic, fail
+                            if(diff>f_o_hat(i,j)) then
+                                print *, "Error: Non-monotonic cdf function. Counter:",counter," element: ", j, " shock: ",i
+                                print *,"value_old: ",diff, " value_new: ",f_o_hat(i,j)
+                                print *,"f_o"
+                                print *,capitalPolicy(i,:)
+                                print *,f_o(i,:)
+                                print *,"f_o_hat"
+                                print *,newCapital
+                                print *,f_o_hat(i,:)
+                                stop 0
+                            end if
+                            diff=f_o_hat(i,j)
+                        end do
+                        do mpicounter=i-(mysize-1),i-1
+                            source = mod(mpicounter,mysize)
+                            call MPI_RECV(f_o_hat(mpicounter,:), capitalCount, MPI_REAL8, source, mpicounter,&
+                                &MPI_COMM_WORLD, stat, ierr)
+                        end do
+                    end if
+                end do
+            else !if (rank == 0)
+                do while(.not. allData)
+                    source = 0
+                    call MPI_RECV(i, 1, MPI_INTEGER, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
+
+                    diff=-1e-5
+                    do j=1,capitalCount
+                        if(f_o_hat(i,j)>1.0_dp) then
+                            f_o_hat(i,j)=1.0_dp
+                        else if (f_o_hat(i,j)<0.0_dp) then
+                            f_o_hat(i,j)=0.0D0
+                        else if (isnan(f_o_hat(i,j))) then
+                            print *, "Error: f_o_hat is NAN. Counter:",counter," shock: ",i,"element: ",j
+                            print *,"Capital Grid"
+                            print *,newCapital(:)
+                            print *,"Policy Fn"
+                            print *,capitalPolicy(j,:)
+                            print *,"f_o"
+                            print *,f_o(i,:)
+                            print *,"f_o_hat"
+                            print *,f_o_hat(i,:)
+                            stop 0
+                        end if
+
+                        !add a test: if non-monotonic, fail
+                        if(diff>f_o_hat(i,j)) then
+                            print *, "Error: Non-monotonic cdf function. Counter:",counter," element: ", j, " shock: ",i
+                            print *,"value_old: ",diff, " value_new: ",f_o_hat(i,j)
+                            print *,"f_o"
+                            print *,capitalPolicy(i,:)
+                            print *,f_o(i,:)
+                            print *,"f_o_hat"
+                            print *,newCapital
+                            print *,f_o_hat(i,:)
+                            stop 0
+                        end if
+                        diff=f_o_hat(i,j)
+                    end do
+                    inmsg(1:capitalCount)=f_o_hat(i,:)
+                    dest = 0
+                    tag = i
+                    call MPI_SEND(inmsg, capitalCount, MPI_REAL8, dest, tag, MPI_COMM_WORLD, ierr)
+
+                    !***************
+                    !check to see if we should expect any more
+                    !***************
+                    if(tag+mysize>n_s)then
+                        allData=.true.
+                    end if
+                end do
+            end if
+
+            if(rank == 0) then
+                !*********************
+                ! we need to capture things we sent
+                !*********************
+                mpicounter=mod(n_s,mysize)-1
+                do j=n_s-mpicounter,n_s
+                    source = mod(j,mysize)
+                    call MPI_RECV(f_o_hat(j,:), capitalCount, MPI_REAL8, source, j,&
+                        & MPI_COMM_WORLD, stat, ierr)
+                end do
+                !***************************
+                ! Now, we need to communicate the value function for this iteration across all programs
+                !***************************
+
+                do j=1,n_s
+                    do it=1,mysize-1
+                        call MPI_SEND(f_o_hat(j,:), capitalCount, MPI_REAL8, it, 1000, MPI_COMM_WORLD, ierr)
+                    end do
+                end do
+            else
+                source = 0
+                do j=1,n_s
+                    call MPI_RECV(f_o_hat(j,:), n_a, MPI_REAL8, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
+
+                    !Check tag to make sure it is what we have set as "value function", i.e. -1
+                    if(stat(MPI_TAG) .ne. 1000)then
+                        print *,"Error, ", rank, "doesn't know what prob function it received,",stat(MPI_TAG)
                         stop 0
                     end if
-                    diff=f_o_hat(i,j)
                 end do
-            end do
+                allData = .false.
+            end if
 
             f_n = matmul(transpose(transition), f_o_hat)
 
@@ -807,7 +944,6 @@ contains
         REAL(KIND=8), INTENT(IN) :: r
         INTEGER :: y
         INTEGER ::  i,it,j,iter
-        INTEGER,dimension(MPI_STATUS_SIZE):: stat
         REAL(DP) :: tempD,tempD2
         real*8, dimension(n_s,n_a)          ::  y2
         real*8                              ::  kr1,kr2,kr3
@@ -818,6 +954,7 @@ contains
         INTEGER :: rank, mysize, source, dest, tag, mpicounter, ierr
         REAL(DP), dimension(n_a*2) :: inmsg
         LOGICAL :: allData=.false.
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
 
         !**************************************************************************
         ! we begin the iteration
