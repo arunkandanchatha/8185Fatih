@@ -656,11 +656,11 @@ contains
         if(firstCall)then
             do i=1,n_s
                 v(i,:,1)=(a-a_min)**2
-        !        v(iter,:,1)=0.0
+            !        v(iter,:,1)=0.0
             end do
             firstCall = .false.
         else
-                v(:,:,1)=lastStateV
+            v(:,:,1)=lastStateV
         end if
         g=0D0
 
@@ -1160,11 +1160,11 @@ program main
     REAL(DP), DIMENSION(3,2) :: startPoint2
     REAL(DP), DIMENSION(3) :: startVals
     INTEGER :: temp2
-        !************
-        ! Timing variables
-        !************
-        real(DP) :: startTime, endTime
-        INTEGER :: rank, ierr
+    !************
+    ! Timing variables
+    !************
+    real(DP) :: startTime, endTime
+    INTEGER :: rank, ierr
 
 
 
@@ -1180,16 +1180,16 @@ program main
     func => aggregateBondsFixedW
 
     CALL MPI_INIT(ierr)
-        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
-        if(rank ==0)then
-            call CPU_TIME(startTime)
-        end if
+    CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+    if(rank ==0)then
+        call CPU_TIME(startTime)
+    end if
     intDiff=brent(func,0.01D0,0.125D0,0.5D0,1.0D-8,xmin)
-        if(rank ==0)then
-            call CPU_TIME(endTime)
-        end if
+    if(rank ==0)then
+        call CPU_TIME(endTime)
+        print *,xmin, "Computation time(s): ",startTime-endTime
+    end if
     CALL MPI_FINALIZE(ierr)
-    print *,xmin, "Computation time(s): ",startTime-endTime
 
 
 contains
