@@ -533,6 +533,7 @@ module aiyagariSolve
     real*8                              :: rho,alpha,RRA,EIS,mysigma,wFixed=1.0D0,&
         & rFixed=0.1D0
     real*8, dimension(n_s,n_a,maxit)    ::  v,g
+    real*8, dimension(n_s,n_a)          ::  lastStateV
     integer, save                       ::  reportNum, callCount
     PROCEDURE(template_function), POINTER :: funcParam
     PROCEDURE(template_function2), POINTER :: deriv1Func, deriv2Func
@@ -599,26 +600,29 @@ contains
         REAL(KIND=8), INTENT(IN) :: r
         REAL(KIND=8) :: z
         REAL(DP):: totalCapital, temp
+        !************
+        ! Timing variables
+        !************
+        real(DP) :: startTime, endTime
+        INTEGER :: rank, ierr
+
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+
+        if(rank ==0)then
+            call CPU_TIME(startTime)
+        end if
 
         rFixed = r
         temp = (r/capShare)**(1.0D0/(capShare-1))
         wFixed=(1-capShare)*temp**capShare
         totalCapital=aggregateBonds(r,wFixed)
 
-#if 0
-        !*************************************************
-        ! Given this capital, what would interest rate be
-        !*************************************************
-        if(totalCapital < 0.0D0) then
-            z=100
-        else
-            temp=deriv1Func(totalCapital,1.0D0)
-            z=abs(r-temp)
-        end if
-#endif
         z=abs(totalCapital-temp)
-        print *,"Implied Capital: ",temp, " Calculated Capital: ", totalCapital
-        flush(6)
+        if(rank ==0)then
+            call CPU_TIME(endTime)
+            print *,"Implied Capital: ",temp, " Calculated Capital: ", totalCapital, "Time to compute: ",endTime-startTime
+            flush(6)
+        end if
     end function aggregateBondsFixedW
 
     function aggregateBonds(r,w) RESULT (z)
@@ -630,6 +634,7 @@ contains
         INTEGER :: iterCount, i
         real*8  ::  incr, totalCapital
         real*8, dimension(n_s,n_a-bottomChop-topChop)          ::  steadyStateCapital
+        logical, save                       :: firstCall = .true.
 
         callCount = callCount+1
         a_min = min(-(s(1)*wFixed)/r + 1,0.0D0)
@@ -648,9 +653,15 @@ contains
         ! and we set up an initial guess for it
         !**************************************************************************
         v=0D0
-        do iterCount=1,n_s
-            v(iterCount,:,1)=(a-a_min)**2
-        end do
+        if(firstCall)then
+            do i=1,n_s
+                v(i,:,1)=(a-a_min)**2
+        !        v(iter,:,1)=0.0
+            end do
+            firstCall = .false.
+        else
+                v(:,:,1)=lastStateV
+        end if
         g=0D0
 
         call wrapperCreate(a,transition,s,alpha,rho,beta,r,w)
@@ -664,9 +675,9 @@ contains
         end do
         close(1)
 
-        !*****************************************************
-        ! find the steady state capital
-        !*****************************************************
+            !*****************************************************
+            ! find the steady state capital
+            !*****************************************************
         call findSteadyState(g(:,:,iterCount),steadyStateCapital)
 
         !**************************************************
@@ -679,6 +690,10 @@ contains
     end function aggregateBonds
 
     subroutine findSteadyState(capitalPolicyOrig, statDist)
+        ! NOTE: This code is faster single processed than multi-processed
+        ! You can confirm this by uncommenting the below define and rebuilding
+        !#define MPI_FSS
+
         !INPUTS: capitalPolicy - the policy function for each state
         !OUTPUTS: statDist - the stationary dist (note: pdf, not cdf)
         INTEGER, parameter :: capitalCount = n_a-bottomChop-topChop
@@ -690,6 +705,8 @@ contains
         REAL(DP), dimension(n_s,capitalCount) :: capitalPolicy
         REAL(DP), dimension(capitalCount) :: newCapital
 
+
+#ifdef MPI_FSS
         !********
         !Variables for MPI
         !**********
@@ -697,21 +714,25 @@ contains
         REAL(DP), dimension(capitalCount) :: inmsg
         LOGICAL :: allData=.false.
         INTEGER,dimension(MPI_STATUS_SIZE):: stat
-
+#endif
         newCapital = a(bottomChop+1:n_a-topChop)
         capitalPolicy = capitalPolicyOrig(:,bottomChop+1:n_a-topChop)
 
+#ifdef MPI_FSS
         !* check monotonicity of capital policy
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
         if(rank == 0) then
+#endif
             do i=1,n_s
+#ifdef MPI_FSS
                 dest = mod(i,mysize);
                 if(dest .ne. 0) then
                     tag = i
                     call MPI_SEND(i, 1, MPI_INTEGER, dest, tag, MPI_COMM_WORLD, ierr)
                 else !if (dest .ne. 0)
+#endif
                     do j=2,capitalCount
                         if(capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
                             print *,"not monotonic.", i, j
@@ -719,8 +740,11 @@ contains
                             stop 0
                         end if
                     end do
+#ifdef MPI_FSS
                 end if
+#endif
             end do
+#ifdef MPI_FSS
         else !if(rank==0)
             do while(.not. allData)
                 source = 0
@@ -743,6 +767,7 @@ contains
         end if
 
         allData=.false.
+#endif
         !setting initial guess to uniform dist across asset grid. First we have it
         !a cdf, and then convert to the appropriate pdf
         do i=1,n_s
@@ -767,14 +792,18 @@ contains
                 end do
             end do
 
-                ! need to make sure monotonic and bounded between 0 and 1
+            ! need to make sure monotonic and bounded between 0 and 1
+#ifdef MPI_FSS
             if(rank == 0) then
+#endif
                 do i=1,n_s
+#ifdef MPI_FSS
                     dest = mod(i,mysize);
                     if(dest .ne. 0) then
                         tag = i
                         call MPI_SEND(i, 1, MPI_INTEGER, dest, tag, MPI_COMM_WORLD, ierr)
                     else !if (dest .ne. 0)
+#endif
                         diff=-1e-5
                         do j=1,capitalCount
                             if(f_o_hat(i,j)>1.0_dp) then
@@ -808,13 +837,16 @@ contains
                             end if
                             diff=f_o_hat(i,j)
                         end do
+#ifdef MPI_FSS
                         do mpicounter=i-(mysize-1),i-1
                             source = mod(mpicounter,mysize)
                             call MPI_RECV(f_o_hat(mpicounter,:), capitalCount, MPI_REAL8, source, mpicounter,&
                                 &MPI_COMM_WORLD, stat, ierr)
                         end do
                     end if
+#endif
                 end do
+#ifdef MPI_FSS
             else !if (rank == 0)
                 do while(.not. allData)
                     source = 0
@@ -866,7 +898,9 @@ contains
                     end if
                 end do
             end if
+#endif
 
+#ifdef MPI_FSS
             if(rank == 0) then
                 !*********************
                 ! we need to capture things we sent
@@ -877,10 +911,10 @@ contains
                     call MPI_RECV(f_o_hat(j,:), capitalCount, MPI_REAL8, source, j,&
                         & MPI_COMM_WORLD, stat, ierr)
                 end do
+
                 !***************************
                 ! Now, we need to communicate the prob function for this iteration across all programs
                 !***************************
-
                 do j=1,n_s
                     do it=1,mysize-1
                         call MPI_SEND(f_o_hat(j,:), capitalCount, MPI_REAL8, it, 1000, MPI_COMM_WORLD, ierr)
@@ -891,7 +925,7 @@ contains
                 do j=1,n_s
                     call MPI_RECV(f_o_hat(j,:), capitalCount, MPI_REAL8, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
 
-                    !Check tag to make sure it is what we have set as "value function", i.e. -1
+                    !Check tag to make sure it is what we have set as "pdf function", i.e. -1
                     if(stat(MPI_TAG) .ne. 1000)then
                         print *,"Error, ", rank, "doesn't know what prob function it received,",stat(MPI_TAG)
                         stop 0
@@ -899,7 +933,7 @@ contains
                 end do
                 allData = .false.
             end if
-
+#endif
             f_n = matmul(transpose(transition), f_o_hat)
 
             !* Fix so that total cdf is 1
@@ -935,12 +969,14 @@ contains
             statDist(i,1) = max(0.0D0,stationary(i)-sum(statDist(i,:)))
         end do
 
+#if 0
         open(unit=1,file="distrib")
         write(1,*) newCapital
         do i=1,n_s
             write(1,*) statDist(i,:)
         end do
         close(1)
+#endif
 
     end subroutine findSteadyState
 
@@ -951,7 +987,6 @@ contains
         REAL(DP) :: tempD,tempD2
         real*8, dimension(n_s,n_a)          ::  y2
         real*8                              ::  kr1,kr2,kr3
-
         !********
         !Variables for MPI
         !**********
@@ -959,6 +994,7 @@ contains
         REAL(DP), dimension(n_a*2) :: inmsg
         LOGICAL :: allData=.false.
         INTEGER,dimension(MPI_STATUS_SIZE):: stat
+
 
         !**************************************************************************
         ! we begin the iteration
@@ -1092,13 +1128,16 @@ contains
                 flush(6)
             end if
             if (     maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)    .lt.    toll     ) then
-                print*,"done: ",iter
-                flush(6)
+                if(rank == 0) then
+                    print*,"done: ",iter
+                    flush(6)
+                end if
                 exit
             end if
         end do
 
         y=min(iter,maxit)
+        lastStateV = v(:,:,y)
 
     end function         getPolicyForInterest
 
@@ -1120,7 +1159,14 @@ program main
     REAL(DP), DIMENSION(2) :: startPoint
     REAL(DP), DIMENSION(3,2) :: startPoint2
     REAL(DP), DIMENSION(3) :: startVals
-    INTEGER :: temp2, ierr
+    INTEGER :: temp2
+        !************
+        ! Timing variables
+        !************
+        real(DP) :: startTime, endTime
+        INTEGER :: rank, ierr
+
+
 
     RRA=2.0D0
     EIS=2.0D0
@@ -1134,9 +1180,16 @@ program main
     func => aggregateBondsFixedW
 
     CALL MPI_INIT(ierr)
-    intDiff=brent(func,0.01D0,0.125D0,0.5D0,1.0D-4,xmin)
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+        if(rank ==0)then
+            call CPU_TIME(startTime)
+        end if
+    intDiff=brent(func,0.01D0,0.125D0,0.5D0,1.0D-8,xmin)
+        if(rank ==0)then
+            call CPU_TIME(endTime)
+        end if
     CALL MPI_FINALIZE(ierr)
-    print *,xmin
+    print *,xmin, "Computation time(s): ",startTime-endTime
 
 
 contains
