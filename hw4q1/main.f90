@@ -605,6 +605,7 @@ contains
         wFixed=(1-capShare)*temp**capShare
         totalCapital=aggregateBonds(r,wFixed)
 
+#if 0
         !*************************************************
         ! Given this capital, what would interest rate be
         !*************************************************
@@ -614,6 +615,10 @@ contains
             temp=deriv1Func(totalCapital,1.0D0)
             z=abs(r-temp)
         end if
+#endif
+        z=abs(totalCapital-temp)
+        print *,"Implied Capital: ",temp, " Calculated Capital: ", totalCapital
+        flush(6)
     end function aggregateBondsFixedW
 
     function aggregateBonds(r,w) RESULT (z)
@@ -874,7 +879,7 @@ contains
                         & MPI_COMM_WORLD, stat, ierr)
                 end do
                 !***************************
-                ! Now, we need to communicate the value function for this iteration across all programs
+                ! Now, we need to communicate the prob function for this iteration across all programs
                 !***************************
 
                 do j=1,n_s
@@ -885,7 +890,7 @@ contains
             else
                 source = 0
                 do j=1,n_s
-                    call MPI_RECV(f_o_hat(j,:), n_a, MPI_REAL8, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
+                    call MPI_RECV(f_o_hat(j,:), capitalCount, MPI_REAL8, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
 
                     !Check tag to make sure it is what we have set as "value function", i.e. -1
                     if(stat(MPI_TAG) .ne. 1000)then
