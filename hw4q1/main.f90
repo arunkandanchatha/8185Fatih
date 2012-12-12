@@ -1249,7 +1249,7 @@ if(whichSet/=2)then
     !Question a
     !***********************************
     RRA=2.0D0
-    EIS=2.0D0
+    EIS=0.5D0
     func => valueFunction
     d1func => d1prod
     d2func => d2prod
@@ -1270,8 +1270,9 @@ if(whichSet/=2)then
     !***********************************
     !Question bp1
     !***********************************
-    RRA=2.0D0
     EIS=0.9D0
+do temp2=0,5
+    RRA=2.0D0+(20.0D0-2.0D0)/5*temp2
     func => valueFunction
     d1func => d1prod
     d2func => d2prod
@@ -1286,27 +1287,8 @@ if(whichSet/=2)then
         call CPU_TIME(endTime)
         print *,"b             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
     end if
-
-    !***********************************
-    !Question bp2
-    !***********************************
-    RRA=20.0D0
-    EIS=0.9D0
-    func => valueFunction
-    d1func => d1prod
-    d2func => d2prod
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
-        &.FALSE., 0.1D0, 1.0D0)
-    func => aggregateBondsFixedW
-    if(rank ==0)then
-        call CPU_TIME(startTime)
-    end if
-    intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
-    if(rank ==0)then
-        call CPU_TIME(endTime)
-        print *,"b             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
-    end if
-endif
+end do
+end if
 
 if(whichSet/=1)then
     !***********************************
