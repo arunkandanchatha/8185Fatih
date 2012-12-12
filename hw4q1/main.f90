@@ -1180,10 +1180,10 @@ contains
             end if
             if( (mod(iter,reportNum)==0) .and. (rank==0))then
                 print *,"r:",r,"w:",wFixed,"iter: ",iter,&
-                    &"diff: ",maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)
+                    &"diff: ",maxval(abs(v(:,:,iter)-v(:,:,iter-1)))
                 flush(6)
             end if
-            if (     maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)    .lt.    toll     ) then
+            if (     maxval(abs(v(:,:,iter)-v(:,:,iter-1)))    .lt.    toll     ) then
 #ifdef DOPRINTS
                 if(rank == 0) then
                     print*,"done: ",iter, "r: ",r, "w: ",wFixed
@@ -1217,7 +1217,7 @@ program main
     REAL(DP), DIMENSION(2) :: startPoint
     REAL(DP), DIMENSION(3,2) :: startPoint2
     REAL(DP), DIMENSION(3) :: startVals
-    INTEGER :: temp2,printEvery=500
+    INTEGER :: temp2,printEvery=500,whichSet=3
     character(LEN=5) :: arg
     !************
     ! Timing variables
@@ -1227,13 +1227,24 @@ program main
 
     temp2=COMMAND_ARGUMENT_COUNT()
     if(temp2 > 0)then
-        call GET_COMMAND_ARGUMENT(1, arg, printEvery)
+        call GET_COMMAND_ARGUMENT(1, arg, whichSet)
+        read (arg,*) whichSet
+    end if
+    if(temp2 > 1)then
+        call GET_COMMAND_ARGUMENT(2, arg, printEvery)
         read (arg,*) printEvery
     end if
 
     CALL MPI_INIT(ierr)
     CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
 
+    if(rank ==0)then
+        print *,"Question               RRA                    EIS                        r  &
+                &                         K                    Error                       Time(s)"        
+        flush(6)
+    end if
+
+if(whichSet/=2)then
     !***********************************
     !Question a
     !***********************************
@@ -1243,11 +1254,6 @@ program main
     d1func => d1prod
     d2func => d2prod
 
-    if(rank ==0)then
-        print *,"Question               RRA                    EIS                        r  &
-                &                         K                    Error                       Time(s)"        
-        flush(6)
-    end if
     call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
         &.FALSE., 0.1D0, 1.0D0)
     func => aggregateBondsFixedW
@@ -1300,8 +1306,9 @@ program main
         call CPU_TIME(endTime)
         print *,"b             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
     end if
+endif
 
-
+if(whichSet/=1)then
     !***********************************
     !Question c
     !***********************************
@@ -1323,6 +1330,7 @@ program main
             print *,"c             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
         end if
     end do
+endif
     CALL MPI_FINALIZE(ierr)
 
 
