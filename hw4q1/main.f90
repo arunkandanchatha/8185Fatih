@@ -1,3 +1,4 @@
+!#define DOPRINTS
 module utilFuncs
     use nrtype
     use nrutil
@@ -234,7 +235,7 @@ contains
         REAL(dp), INTENT(OUT) :: xmin
         REAL(dp) :: brent
         PROCEDURE(template_function), POINTER :: myfunc
-        INTEGER(I4B), PARAMETER :: ITMAX=100
+        INTEGER(I4B), PARAMETER :: ITMAX=1000
         REAL(dp), PARAMETER :: CGOLD=0.3819660_dp,ZEPS=1.0e-3_dp*epsilon(ax)
         INTEGER(I4B) :: iter
         REAL(dp) :: a,b,d,e,etemp,fu,fv,fw,fx,p,q,r,tol1,tol2,u,v,w,x,xm
@@ -496,6 +497,11 @@ contains
             temp=0.0D0
         end if
         z=-(((temp)**rho+beta*rp(1)**(rho/alpha))**(1/rho))
+        if(z<-10D50)then
+            print *,"value function too low"
+            print *,temp,rho,beta,rp(1),alpha
+            stop 0
+        end if
     end function valueFunction
 
 end module brentWrapper
@@ -510,8 +516,8 @@ module aiyagariSolve
 
     INCLUDE 'mpif.h'
     real*8, parameter                   ::  phi=.9D0,sigma=.4D0
-    integer, parameter                  ::  n_s=7
-    integer, parameter                  ::  n_a=316
+    integer, parameter                  ::  n_s=3
+    integer, parameter                  ::  n_a=101
 
     !******************
     ! These are here because of screwey splines
@@ -519,8 +525,8 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    real*8, parameter                   ::  curv=3.0D0,a_max=200.0D0
-    real*8, parameter                   :: beta=0.90
+    real*8, parameter                   ::  curv=3.0D0,a_max=50.0D0
+    real*8, parameter                   ::  beta=0.90
     integer, parameter                  ::  maxit=2000
     real*8,parameter                    ::  toll=1D-8,tol2=1D-8
     LOGICAL                             :: doSpline = .TRUE.
@@ -537,13 +543,14 @@ module aiyagariSolve
     integer, save                       ::  reportNum, callCount
     PROCEDURE(template_function), POINTER :: funcParam
     PROCEDURE(template_function2), POINTER :: deriv1Func, deriv2Func
+    logical                            :: firstCall = .true.
 
     character(LEN=20)                   :: policyOutput
 
     PRIVATE phi, sigma, n_s, n_a, curv, a_max, beta, maxit, toll, doSpline
     PRIVATE s, stationary, a, a_min,rho,alpha,RRA,EIS,mysigma,v,g
     PRIVATE reportNum,funcParam,policyOutput
-    PRIVATE aggregateBonds
+    PRIVATE aggregateBonds, firstCall
 
 contains
     subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, &
@@ -564,8 +571,8 @@ contains
         deriv1Func => d1Func
         deriv2Func => d2Func
 
-        rho=1-1.0D0/EIS
-        alpha=1-RRA
+        rho=1.0D0-1.0D0/EIS
+        alpha=1.0D0-RRA
         reportNum = 50
         if(PRESENT(every)) then
             reportNum=every
@@ -585,6 +592,8 @@ contains
 
         policyOutput = file1
         callCount = 0
+        firstCall = .true.
+
         !**************************************************************************
         ! We use the rowenhorst method to obtain the transition matrix GAMMA,
         ! the stationary probability distribution stationary, and the shocks s.
@@ -615,15 +624,51 @@ contains
         rFixed = r
         temp = (r/capShare)**(1.0D0/(capShare-1))
         wFixed=(1-capShare)*temp**capShare
+
         totalCapital=aggregateBonds(r,wFixed)
 
         z=abs(totalCapital-temp)
+#ifdef DOPRINTS
         if(rank ==0)then
             call CPU_TIME(endTime)
             print *,"Implied Capital: ",temp, " Calculated Capital: ", totalCapital, "Time to compute: ",endTime-startTime
             flush(6)
         end if
+#endif
     end function aggregateBondsFixedW
+
+    function aggregateBondsSetK(k) RESULT (z)
+        ! inputs: r - the interest rate to test
+        ! outputs: z - the aggregate level of borrowing
+        REAL(KIND=8), INTENT(IN) :: k
+        REAL(KIND=8) :: z
+        REAL(DP):: totalCapital, temp
+        !************
+        ! Timing variables
+        !************
+        real(DP) :: startTime, endTime
+        INTEGER :: rank, ierr
+
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+
+        if(rank ==0)then
+            call CPU_TIME(startTime)
+        end if
+
+        rFixed = capShare*k**(capShare-1)
+        temp = k
+        wFixed=(1-capShare)*temp**capShare
+        totalCapital=aggregateBonds(rFixed,wFixed)
+
+        z=abs(totalCapital-temp)
+#ifdef DOPRINTS
+        if(rank ==0)then
+            call CPU_TIME(endTime)
+            print *,"Set Capital: ",temp, " Calculated Capital: ", totalCapital, "r: ",rFixed,"Time to compute: ",endTime-startTime
+            flush(6)
+        end if
+#endif
+    end function aggregateBondsSetK
 
     function aggregateBonds(r,w) RESULT (z)
         ! inputs: r - the interest rate to test
@@ -634,7 +679,6 @@ contains
         INTEGER :: iterCount, i
         real*8  ::  incr, totalCapital
         real*8, dimension(n_s,n_a-bottomChop-topChop)          ::  steadyStateCapital
-        logical, save                       :: firstCall = .true.
 
         callCount = callCount+1
         a_min = min(-(s(1)*wFixed)/r + 1,0.0D0)
@@ -1027,7 +1071,11 @@ contains
                                 end if
                                 kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
                                 kr2=(kr1+kr3)/2D0
-                                v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
+                                v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-6,g(i,it,iter))
+                                if(isNAN(v(i,it,iter)))then
+                                    print *,"error, value function is nan"
+                                    stop 0
+                                end if
                             end do
                             do j=i-(mysize-1),i-1
                                 source = mod(j,mysize)
@@ -1042,7 +1090,7 @@ contains
                         source = 0
                         call MPI_RECV(i, 1, MPI_INTEGER, source, MPI_ANY_TAG, MPI_COMM_WORLD, stat, ierr)
                         do it=1,n_a
-                            !ensure monotone policy function
+                             !ensure monotone policy function
                             if(it==1)then
                                 kr1=a(1)
                             else
@@ -1051,6 +1099,10 @@ contains
                             kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
                             kr2=(kr1+kr3)/2D0
                             v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
+                            if(isNAN(v(i,it,iter)))then
+                                print *,"error, value function is nan"
+                                stop 0
+                            end if
                         end do
                         inmsg(1:n_a)=v(i,:,iter)
                         inmsg(n_a+1:2*n_a)=g(i,:,iter)
@@ -1075,6 +1127,10 @@ contains
                         kr3=min(a(it)*(1+r)+s(i)*wFixed,a(n_a))
                         kr2=(kr1+kr3)/2D0
                         v(i,it,iter)=-callBrent(i,it,funcParam,kr1,kr2,kr3,1D-10,g(i,it,iter))
+                        if(isNAN(v(i,it,iter)))then
+                            print *,"error, value function is nan"
+                            stop 0
+                        end if
                     end do
                 end do
                 call wrapperClean()
@@ -1128,10 +1184,12 @@ contains
                 flush(6)
             end if
             if (     maxval(maxval(abs(v(:,:,iter)-v(:,:,iter-1)),1),2)    .lt.    toll     ) then
+#ifdef DOPRINTS
                 if(rank == 0) then
-                    print*,"done: ",iter
+                    print*,"done: ",iter, "r: ",r, "w: ",wFixed
                     flush(6)
                 end if
+#endif
                 exit
             end if
         end do
@@ -1166,29 +1224,98 @@ program main
     real(DP) :: startTime, endTime
     INTEGER :: rank, ierr
 
+    CALL MPI_INIT(ierr)
+    CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
 
-
+    !***********************************
+    !Question a
+    !***********************************
     RRA=2.0D0
     EIS=2.0D0
     func => valueFunction
     d1func => d1prod
     d2func => d2prod
 
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 50, capitalShare,&
+    if(rank ==0)then
+        print *,"Question               RRA                    EIS                        r  &
+                &                         K                    Error                       Time(s)"        
+        flush(6)
+    end if
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
         &.FALSE., 0.1D0, 1.0D0)
-
     func => aggregateBondsFixedW
-
-    CALL MPI_INIT(ierr)
-    CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
     if(rank ==0)then
         call CPU_TIME(startTime)
     end if
-    intDiff=brent(func,0.01D0,0.125D0,0.5D0,1.0D-8,xmin)
+    intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
     if(rank ==0)then
         call CPU_TIME(endTime)
-        print *,xmin, "Computation time(s): ",startTime-endTime
+        print *,"a             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+        flush(6)
     end if
+
+    !***********************************
+    !Question bp1
+    !***********************************
+    RRA=2.0D0
+    EIS=0.9D0
+    func => valueFunction
+    d1func => d1prod
+    d2func => d2prod
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
+        &.FALSE., 0.1D0, 1.0D0)
+    func => aggregateBondsFixedW
+    if(rank ==0)then
+        call CPU_TIME(startTime)
+    end if
+    intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
+    if(rank ==0)then
+        call CPU_TIME(endTime)
+        print *,"b             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+    end if
+
+    !***********************************
+    !Question bp2
+    !***********************************
+    RRA=20.0D0
+    EIS=0.9D0
+    func => valueFunction
+    d1func => d1prod
+    d2func => d2prod
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
+        &.FALSE., 0.1D0, 1.0D0)
+    func => aggregateBondsFixedW
+    if(rank ==0)then
+        call CPU_TIME(startTime)
+    end if
+    intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
+    if(rank ==0)then
+        call CPU_TIME(endTime)
+        print *,"b             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+    end if
+
+
+    !***********************************
+    !Question c
+    !***********************************
+    RRA=2.0D0
+    do temp2=0,5
+        EIS=0.1D0+(2.0D0-0.1D0)/5*temp2
+        func => valueFunction
+        d1func => d1prod
+        d2func => d2prod
+        call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
+            &.FALSE., 0.1D0, 1.0D0)
+        func => aggregateBondsFixedW
+        if(rank ==0)then
+            call CPU_TIME(startTime)
+        end if
+        intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
+        if(rank ==0)then
+            call CPU_TIME(endTime)
+            print *,"c             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+        end if
+    end do
     CALL MPI_FINALIZE(ierr)
 
 
@@ -1210,4 +1337,11 @@ contains
         REAL(KIND=8) :: y
         y=(1-capitalShare)*capital**capitalShare*labour**(-capitalShare)
     end function d2prod
+
+    function impliedCapital(interest) RESULT(y)
+        REAL(KIND=8), INTENT(IN) :: interest
+        REAL(KIND=8) :: y
+
+        y=(interest/capitalShare)**(1.0D0/(capitalShare-1))
+    end function impliedCapital
 end program main
