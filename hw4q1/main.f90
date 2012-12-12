@@ -516,8 +516,8 @@ module aiyagariSolve
 
     INCLUDE 'mpif.h'
     real*8, parameter                   ::  phi=.9D0,sigma=.4D0
-    integer, parameter                  ::  n_s=3
-    integer, parameter                  ::  n_a=101
+    integer, parameter                  ::  n_s=9
+    integer, parameter                  ::  n_a=301
 
     !******************
     ! These are here because of screwey splines
@@ -599,7 +599,7 @@ contains
         ! the stationary probability distribution stationary, and the shocks s.
         !**************************************************************************
         call rouwenhorst(phi,sigma,transition,s,stationary)
-        s=1+s
+        s=2+s
 
     end subroutine setParams
 
@@ -1217,12 +1217,19 @@ program main
     REAL(DP), DIMENSION(2) :: startPoint
     REAL(DP), DIMENSION(3,2) :: startPoint2
     REAL(DP), DIMENSION(3) :: startVals
-    INTEGER :: temp2
+    INTEGER :: temp2,printEvery=500
+    character(LEN=5) :: arg
     !************
     ! Timing variables
     !************
     real(DP) :: startTime, endTime
     INTEGER :: rank, ierr
+
+    temp2=COMMAND_ARGUMENT_COUNT()
+    if(temp2 > 0)then
+        call GET_COMMAND_ARGUMENT(1, arg, printEvery)
+        read (arg,*) printEvery
+    end if
 
     CALL MPI_INIT(ierr)
     CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
@@ -1241,7 +1248,7 @@ program main
                 &                         K                    Error                       Time(s)"        
         flush(6)
     end if
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
         &.FALSE., 0.1D0, 1.0D0)
     func => aggregateBondsFixedW
     if(rank ==0)then
@@ -1262,7 +1269,7 @@ program main
     func => valueFunction
     d1func => d1prod
     d2func => d2prod
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
         &.FALSE., 0.1D0, 1.0D0)
     func => aggregateBondsFixedW
     if(rank ==0)then
@@ -1282,7 +1289,7 @@ program main
     func => valueFunction
     d1func => d1prod
     d2func => d2prod
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
+    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
         &.FALSE., 0.1D0, 1.0D0)
     func => aggregateBondsFixedW
     if(rank ==0)then
@@ -1304,7 +1311,7 @@ program main
         func => valueFunction
         d1func => d1prod
         d2func => d2prod
-        call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", 500, capitalShare,&
+        call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
             &.FALSE., 0.1D0, 1.0D0)
         func => aggregateBondsFixedW
         if(rank ==0)then
