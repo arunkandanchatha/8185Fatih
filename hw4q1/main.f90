@@ -1004,14 +1004,9 @@ contains
             diff = maxval(abs(f_n - f_o))
         end do
 
-            do i=1,n_s
-                f_n(i,:)=f_n(i,:)*stationary(i)
-            end do
-        open(unit=1,file=distribOutput)
-        do j=bottomChop+1,n_a-topChop
-            write(1,*) a(j),f_n(:,j)/stationary(:)
+        do i=1,n_s
+            f_n(i,:)=f_n(i,:)*stationary(i)
         end do
-        close(1)
 
         statDist = f_n
         do i=capitalCount,2,-1
@@ -1020,6 +1015,12 @@ contains
         do i=1,n_s
             statDist(i,1) = max(0.0D0,stationary(i)-sum(statDist(i,:)))
         end do
+
+        open(unit=1,file=distribOutput)
+        do j=1,capitalCount
+            write(1,*) a(j+bottomChop),statDist(:,j)
+        end do
+        close(1)
 
     end subroutine findSteadyState
 
@@ -1302,7 +1303,7 @@ program main
         !Question c
         !***********************************
         RRA=2.0D0
-        do temp2=5,5
+        do temp2=0,5
             EIS=0.1D0+(2.0D0-0.1D0)/5*temp2
             func => valueFunction
             d1func => d1prod
