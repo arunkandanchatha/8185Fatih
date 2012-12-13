@@ -525,7 +525,7 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    real*8, parameter                   ::  curv=3.0D0,a_max=50.0D0
+    real*8, parameter                   ::  curv=3.0D0,a_max=35.0D0
     real*8, parameter                   ::  beta=0.90
     integer, parameter                  ::  maxit=2000
     real*8,parameter                    ::  toll=1D-8,tol2=1D-8
@@ -546,6 +546,7 @@ module aiyagariSolve
     logical                            :: firstCall = .true.
 
     character(LEN=20)                   :: policyOutput
+    character(LEN=20)                   :: distribOutput
 
     PRIVATE phi, sigma, n_s, n_a, curv, a_max, beta, maxit, toll, doSpline
     PRIVATE s, stationary, a, a_min,rho,alpha,RRA,EIS,mysigma,v,g
@@ -553,13 +554,14 @@ module aiyagariSolve
     PRIVATE aggregateBonds, firstCall
 
 contains
-    subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, every, &
+    subroutine setParams(myrra, myeis, func, d1Func, d2Func, file1, file2, every, &
         & capitalShare, doLinear, myR, myW)
         REAL(KIND=8), INTENT(IN) :: myrra, myeis,capitalShare
         PROCEDURE(template_function), POINTER, INTENT(IN) :: func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d1Func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d2Func
         character(LEN=*),INTENT(IN) :: file1
+        character(LEN=*),INTENT(IN) :: file2
         INTEGER, OPTIONAL, INTENT(IN) :: every
         LOGICAL, OPTIONAL, INTENT(IN) :: doLinear
         REAL(DP), OPTIONAL, INTENT(IN) :: myR, myW
@@ -574,6 +576,7 @@ contains
         rho=1.0D0-1.0D0/EIS
         alpha=1.0D0-RRA
         reportNum = 50
+
         if(PRESENT(every)) then
             reportNum=every
         end if
@@ -591,6 +594,7 @@ contains
         end if
 
         policyOutput = file1
+        distribOutput = file2
         callCount = 0
         firstCall = .true.
 
@@ -599,8 +603,7 @@ contains
         ! the stationary probability distribution stationary, and the shocks s.
         !**************************************************************************
         call rouwenhorst(phi,sigma,transition,s,stationary)
-        s=2+s
-
+        s=1+s/(s(n_s)+0.1D0)
     end subroutine setParams
 
     function aggregateBondsFixedW(r) RESULT (z)
@@ -676,7 +679,7 @@ contains
         REAL(KIND=8), INTENT(IN) :: r,w
         REAL(KIND=8) :: z
 
-        INTEGER :: iterCount, i
+        INTEGER :: iterCount, i,j
         real*8  ::  incr, totalCapital
         real*8, dimension(n_s,n_a-bottomChop-topChop)          ::  steadyStateCapital
 
@@ -816,7 +819,7 @@ contains
         !a cdf, and then convert to the appropriate pdf
         do i=1,n_s
             do j=1,capitalCount
-                statDist(i,j) = (newCapital(j) - newCapital(1))/(newCapital(capitalCount)-newCapital(1))
+                statDist(i,j) = (newCapital(j) - newCapital(1))/(newCapital(capitalCount)-newCapital(1))*dble(1.0_dp/n_s)
             end do
         end do
 
@@ -1001,10 +1004,15 @@ contains
             diff = maxval(abs(f_n - f_o))
         end do
 
-        !normalize to account for rounding errors
-        do i=1,n_s
-            f_n(i,:)=f_n(i,:)*stationary(i)
+            do i=1,n_s
+                f_n(i,:)=f_n(i,:)*stationary(i)
+            end do
+        open(unit=1,file=distribOutput)
+        do j=bottomChop+1,n_a-topChop
+            write(1,*) a(j),f_n(:,j)/stationary(:)
         end do
+        close(1)
+
         statDist = f_n
         do i=capitalCount,2,-1
             statDist(:,i) = statDist(:,i) - statDist(:,i-1)
@@ -1012,15 +1020,6 @@ contains
         do i=1,n_s
             statDist(i,1) = max(0.0D0,stationary(i)-sum(statDist(i,:)))
         end do
-
-#if 0
-        open(unit=1,file="distrib")
-        write(1,*) newCapital
-        do i=1,n_s
-            write(1,*) statDist(i,:)
-        end do
-        close(1)
-#endif
 
     end subroutine findSteadyState
 
@@ -1209,7 +1208,7 @@ program main
     use aiyagariSolve
     use brentWrapper
     REAL(DP) :: RRA, EIS, intDiff,xmin
-    REAL(DP) :: capitalShare = 0.5D0
+    REAL(DP) :: capitalShare = 0.33D0
     PROCEDURE(template_function), POINTER :: func
     PROCEDURE(template_function2), POINTER :: d1func, d2func
     PROCEDURE(template_function3), POINTER :: func2
@@ -1218,7 +1217,7 @@ program main
     REAL(DP), DIMENSION(3,2) :: startPoint2
     REAL(DP), DIMENSION(3) :: startVals
     INTEGER :: temp2,printEvery=500,whichSet=3
-    character(LEN=5) :: arg
+    character(LEN=15) :: arg1,arg2,arg3,arg4
     !************
     ! Timing variables
     !************
@@ -1227,12 +1226,12 @@ program main
 
     temp2=COMMAND_ARGUMENT_COUNT()
     if(temp2 > 0)then
-        call GET_COMMAND_ARGUMENT(1, arg, whichSet)
-        read (arg,*) whichSet
+        call GET_COMMAND_ARGUMENT(1, arg1, whichSet)
+        read (arg1,*) whichSet
     end if
     if(temp2 > 1)then
-        call GET_COMMAND_ARGUMENT(2, arg, printEvery)
-        read (arg,*) printEvery
+        call GET_COMMAND_ARGUMENT(2, arg1, printEvery)
+        read (arg1,*) printEvery
     end if
 
     CALL MPI_INIT(ierr)
@@ -1244,63 +1243,19 @@ program main
         flush(6)
     end if
 
-if(whichSet/=2)then
-    !***********************************
-    !Question a
-    !***********************************
-    RRA=2.0D0
-    EIS=0.5D0
-    func => valueFunction
-    d1func => d1prod
-    d2func => d2prod
-
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
-        &.FALSE., 0.1D0, 1.0D0)
-    func => aggregateBondsFixedW
-    if(rank ==0)then
-        call CPU_TIME(startTime)
-    end if
-    intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
-    if(rank ==0)then
-        call CPU_TIME(endTime)
-        print *,"a             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
-        flush(6)
-    end if
-
-    !***********************************
-    !Question bp1
-    !***********************************
-    EIS=0.9D0
-do temp2=0,5
-    RRA=2.0D0+(20.0D0-2.0D0)/5*temp2
-    func => valueFunction
-    d1func => d1prod
-    d2func => d2prod
-    call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
-        &.FALSE., 0.1D0, 1.0D0)
-    func => aggregateBondsFixedW
-    if(rank ==0)then
-        call CPU_TIME(startTime)
-    end if
-    intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
-    if(rank ==0)then
-        call CPU_TIME(endTime)
-        print *,"b             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
-    end if
-end do
-end if
-
-if(whichSet/=1)then
-    !***********************************
-    !Question c
-    !***********************************
-    RRA=2.0D0
-    do temp2=0,5
-        EIS=0.1D0+(2.0D0-0.1D0)/5*temp2
+    if(whichSet/=2)then
+        !***********************************
+        !Question a
+        !***********************************
+        RRA=2.0D0
+        EIS=0.5D0
         func => valueFunction
         d1func => d1prod
         d2func => d2prod
-        call setParams(RRA, EIS, func, d1func, d2func, "policyR2E2", printEvery, capitalShare,&
+
+        arg1="policyR2Ep5"
+        arg2= "distribR2Ep5"
+        call setParams(RRA, EIS, func, d1func, d2func,arg1,arg2 , printEvery, capitalShare,&
             &.FALSE., 0.1D0, 1.0D0)
         func => aggregateBondsFixedW
         if(rank ==0)then
@@ -1309,10 +1264,67 @@ if(whichSet/=1)then
         intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
         if(rank ==0)then
             call CPU_TIME(endTime)
-            print *,"c             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+            print *,"a             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+            flush(6)
         end if
-    end do
-endif
+
+        !***********************************
+        !Question bp1
+        !***********************************
+        EIS=0.9D0
+        do temp2=0,5
+            RRA=2.0D0+(20.0D0-2.0D0)/5*temp2
+            func => valueFunction
+            d1func => d1prod
+            d2func => d2prod
+            arg1="policyR"
+            write(arg2,'(I1)') temp2
+            arg3="Ep9"
+            arg1=TRIM(arg1)//TRIM(arg2)//TRIM(arg3)
+            arg4= "distribR"
+            arg2=trim(arg4)//TRIM(arg2)//TRIM(arg3)
+            call setParams(RRA, EIS, func, d1func, d2func,arg1,arg2 , printEvery, capitalShare,&
+                &.FALSE., 0.1D0, 1.0D0)
+            func => aggregateBondsFixedW
+            if(rank ==0)then
+                call CPU_TIME(startTime)
+            end if
+            intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
+            if(rank ==0)then
+                call CPU_TIME(endTime)
+                print *,"b             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+            end if
+        end do
+    end if
+
+    if(whichSet/=1)then
+        !***********************************
+        !Question c
+        !***********************************
+        RRA=2.0D0
+        do temp2=5,5
+            EIS=0.1D0+(2.0D0-0.1D0)/5*temp2
+            func => valueFunction
+            d1func => d1prod
+            d2func => d2prod
+            arg1="policyR2E"
+            write(arg2,'(I1)') temp2
+            arg1=TRIM(arg1)//TRIM(arg2)
+            arg4= "distribR2E"
+            arg2=TRIM(arg4)//TRIM(arg2)
+            call setParams(RRA, EIS, func, d1func, d2func,arg1,arg2 , printEvery, capitalShare,&
+                &.FALSE., 0.1D0, 1.0D0)
+            func => aggregateBondsFixedW
+            if(rank ==0)then
+                call CPU_TIME(startTime)
+            end if
+            intDiff=brent(func,0.01D0,0.09D0,0.12D0,1.0D-8,xmin)
+            if(rank ==0)then
+                call CPU_TIME(endTime)
+                print *,"c             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
+            end if
+        end do
+    endif
     CALL MPI_FINALIZE(ierr)
 
 
