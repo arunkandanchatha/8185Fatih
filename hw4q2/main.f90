@@ -297,19 +297,19 @@ module brentWrapper
     REAL(DP), allocatable, DIMENSION(:) :: a, s
     REAL(DP), allocatable, DIMENSION(:,:,:,:) :: transition
     REAL(DP), allocatable, DIMENSION(:,:,:) :: v, y2
-    REAL(DP) :: beta,r,w,z
+    REAL(DP) :: beta,r,w,z,delta
 
-    PRIVATE n_s,n_z,currentState,currentCapital,a,s,v,y2,transition,beta,r,w
+    PRIVATE n_s,n_z,currentState,currentCapital,a,s,v,y2,transition,beta,r,w,delta
     PRIVATE currentAggState
 
 contains
 
-    subroutine wrapperCreate(pn_s,pn_z,grid,mytransition,mystates,mybeta,myr,myw)
+    subroutine wrapperCreate(pn_s,pn_z,grid,mytransition,mystates,mybeta,myr,myw,mydelta)
         INTEGER(I4B), INTENT(IN) :: pn_s, pn_z
         REAL(DP), DIMENSION(:), INTENT(IN) ::grid
         REAL(DP), DIMENSION(:) :: mystates
         REAL(DP), DIMENSION(:,:,:,:) :: mytransition
-        REAL(DP), INTENT(IN) :: mybeta,myr,myw
+        REAL(DP), INTENT(IN) :: mybeta,myr,myw,mydelta
 
         n_s=pn_s
         n_z=pn_z
@@ -324,6 +324,7 @@ contains
         transition=mytransition
 
         beta=mybeta
+        delta=mydelta
         r=myr
         w=myw
     end subroutine wrapperCreate
@@ -373,7 +374,7 @@ contains
         REAL(DP) :: z
         REAL(DP) ::  rp
         integer  ::  i,j
-        REAL(DP) :: temp
+        REAL(DP) :: temp,eps=epsilon(1.0D0)
         REAL(DP), dimension(n_z,n_s)            ::  interpolated
 
         do i=1,n_z
@@ -396,13 +397,18 @@ contains
                 rp=rp+transition(currentAggState,currentState,i,j)*interpolated(i,j)
             end do
         end do
-        temp = a(currentCapital)*(1+r)+s(currentState)*w-x
-        if(temp < 0.0D0) then
-            temp=0.0D0
+        temp = a(currentCapital)*(1+r-delta)+s(currentState)*w-x
+        if(temp < eps) then
+            temp=eps
         end if
         z=-(log(temp)+beta*rp)
         if(z<-10D50)then
             print *,"value function too low"
+            print *,temp,beta,rp
+            stop 0
+        end if
+        if(z>10D50)then
+            print *,"value function too high"
             print *,temp,beta,rp
             stop 0
         end if
@@ -424,8 +430,8 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  phi=.9D0,sigma=.4D0
     integer, parameter                  ::  n_a=301
     integer, parameter                  :: myseed = 4567
-    integer, parameter                  :: periodsForConv = 11000
-    integer, parameter                  :: periodsToCut = 1000
+    integer, parameter                  :: periodsForConv = 3000
+    integer, parameter                  :: periodsToCut = 500
     integer, parameter                  :: numHouseHolds = 10000
 
     !******************
@@ -434,9 +440,9 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.1D0, a_max=35.0D0
-    REAL(DP), parameter                   ::  k_min=.01D0, k_max = a_max
-    REAL(DP), parameter                   ::  beta=0.90
+    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseHolds, a_max=50.0D0
+    REAL(DP), parameter                   ::  k_min=20D0, k_max = 100.0D0
+    REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
     REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-8
 
@@ -464,7 +470,7 @@ module aiyagariSolve
     character(LEN=20)                   :: policyOutput
     character(LEN=20)                   :: distribOutput
 
-    PRIVATE phi, sigma, n_z, n_a, curv, a_max, beta, maxit, toll
+    PRIVATE phi, sigma, n_z, n_a, curv, a_max, beta, maxit, toll, delta
     PRIVATE s, stationary, a, a_min,v,g
     PRIVATE reportNum,funcParam,policyOutput
     PRIVATE aggregateBonds, firstCall
@@ -486,7 +492,7 @@ contains
         deriv2Func => d2Func
         capitalCalc => capitalFunc
 
-        reportNum = 50
+        reportNum = 500
 
         if(PRESENT(every)) then
             reportNum=every
@@ -557,8 +563,8 @@ contains
         ! First, solve the steady state version of the model with no aggregate shocks.
         !*************************************************************************
         call allocateArrays(1,2,1)
-        s(0)=0.0D0
-        s(1)=1.0D0
+        s(1)=0.0D0
+        s(2)=1.0D0
         funcParam => valueFunction
         func => aggregateBondsSetR
         ! we initialize the value function
@@ -585,7 +591,7 @@ contains
         transition(1,2,1,2) = 0.93D0
         ztransition(1,1) = 1.0D0
 
-        temp=brent(func,0.01D0,0.09D0,0.12D0,toll,xmin)
+        temp=brent(func,0.05D0,0.13D0,0.15D0,toll,xmin)
         call deallocateArrays()
         stop 0
 
@@ -596,7 +602,8 @@ contains
         k=k+k_min
 
         zShocks=(/0.99D0,1.01D0/)
-        s=(0.0D0,1.0D0)
+        s(1)=0.0D0
+        s(2)=1.0D0
         ssEmployment=reshape((/0.9D0,0.96D0,0.1D0,0.04D0/),(/2,2/))
 
         !***********************************************************************
@@ -668,6 +675,8 @@ contains
             wFixed=deriv2Func(k(1),ssEmployment(states,2),zShocks(states))
             totalCapital=aggregateBonds(r,wFixed,1)
             z=abs(totalCapital-k(1))
+            print *,"Implied: ",k(1),"totalCapital: ",totalCapital
+            flush(6)
         end do
     end function aggregateBondsSetR
 
@@ -684,7 +693,7 @@ contains
 
         rFixed=r
         wFixed=w
-        call wrapperCreate(n_s,n_z,a,transition,s,beta,r,w)
+        call wrapperCreate(n_s,n_z,a,transition,s,beta,r,w, delta)
         call getPolicyForCapital(currentCap)
         call wrapperDestroy()
 
@@ -714,7 +723,7 @@ contains
         !**************************************************************************
         ! we begin the iteration
         !**************************************************************************
-        do iter=2,maxit
+        do iter=1,maxit
             do i=1,n_z
                 do j=1,n_s
                     tempD=(v(i,aggK,j,2,1)-v(i,aggK,j,1,1))/(a(2)-a(1))
@@ -732,7 +741,7 @@ contains
                         else
                             kr1=g(i,aggK,j,it-1)
                         end if
-                        kr3=min(a(it)*(1+rFixed)+s(j)*wFixed,a(n_a))
+                        kr3=min(a(it)*(1+rFixed-delta)+s(j)*wFixed,a(n_a))
                         kr2=(kr1+kr3)/2D0
                         v(i,aggK,j,it,2)=-callBrent(i,j,it,funcParam,kr1,kr2,kr3,toll,g(i,aggK,j,it))
                         if(isNAN(v(i,aggK,j,it,2)))then
@@ -742,11 +751,21 @@ contains
                             flush(6)
                             stop 0
                         end if
+                        if(v(i,aggK,j,it,2)<-10D50)then
+                            print *,"error, value function is too low"
+                            print *,i,j,it
+                            print *,kr1,kr2,kr3
+                            print *,v(i,aggK,j,it,1),v(i,aggK,j,it,2)
+                            print *,s(j)
+                            flush(6)
+                            stop 0
+                        end if
+
                     end do
                 end do
             end do
             call wrapperClean()
-            if( (mod(iter,reportNum)==0))then
+            if( (mod(iter,reportNum)==1))then
                 print *,"r:",rFixed,"w:",wFixed,"iter: ",iter,&
                     &"diff: ",maxval(abs(v(:,aggK,:,:,2)-v(:,aggK,:,:,1)))
                 flush(6)
@@ -762,7 +781,6 @@ contains
             v(:,aggK,:,:,1)=v(:,aggK,:,:,2)
         end do
         lastStateV(:,aggK,:,:) = v(:,aggK,:,:,2)
-
     end subroutine  getPolicyForCapital
 
     FUNCTION findSteadyStateCapital(noShocks) RESULT(y)
@@ -772,9 +790,10 @@ contains
         INTEGER(I4B) :: i,j,ii
         REAL(DP) :: num
         INTEGER(I4B), DIMENSION(periodsForConv+periodsToCut) :: z
-        REAL(DP), DIMENSION(periodsForConv+periodsToCut) :: aggK
+        REAL(DP), DIMENSION(periodsForConv+periodsToCut), save :: aggK
         TYPE(household), DIMENSION(numHouseholds) :: hhs
         REAL(DP), DIMENSION(n_s,n_a) :: gint
+        LOGICAL, save :: firstTime = .true.
 
         !first, draw T states for the economy
         num= rand(myseed)
@@ -794,15 +813,18 @@ contains
         end do
 
         !we now have our series of economic shocks. Now let's set initial distribution
+        if (firstTime) then
         do i=1,numHouseholds,2
             hhs(i)%employmentState=1
-            hhs(i)%capital=a_max*(numHouseholds-(i-1))/numHouseholds
+            hhs(i)%capital=k(1)
             hhs(i+1)%employmentState=2
-            hhs(i+1)%capital=a_max*(numHouseholds-(i-1))/numHouseholds
+            hhs(i+1)%capital=k(1)
         end do
+        end if
+
 
         !calculate aggregate capital
-        aggK(1) = sum(hhs(:)%capital)
+        aggK(1) = sum(hhs(:)%capital)/numHouseholds
 
         !now let's update
         do i=2,periodsForConv+periodsToCut
@@ -831,10 +853,23 @@ contains
                 end do
             end do
 
-            aggK(i)=sum(hhs(:)%capital)
+            aggK(i)=sum(hhs(:)%capital)/numHouseholds
+
+            if( (mod(i,500)==0))then
+                print *,"SS: ",i,aggK(i)
+                flush(6)
+            end if
+
         end do
+        firstTime = .false.
         y=aggK(periodsForConv+periodsToCut)
-        stop 0
+
+        open(unit=2,file=distribOutput)
+        do i=1,numHouseholds
+                write(2,*) hhs(i)%capital
+        end do
+        close(2)
+
     end function findSteadyStateCapital
 
 end module aiyagariSolve
@@ -847,11 +882,11 @@ program main
     use aiyagariSolve
     use brentWrapper
     REAL(DP) :: intDiff,xmin
-    REAL(DP) :: capitalShare = 0.33D0
+    REAL(DP) :: capitalShare = 0.36D0
     PROCEDURE(template_function), POINTER :: func
     PROCEDURE(template_function2), POINTER :: d1func, d2func
     PROCEDURE(template_function3), POINTER :: func2
-    INTEGER :: temp2,printEvery=50,whichSet=3
+    INTEGER :: temp2,printEvery=500,whichSet=3
     character(LEN=15) :: arg1,arg2
     !************
     ! Timing variables
