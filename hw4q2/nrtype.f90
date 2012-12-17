@@ -53,4 +53,9 @@ MODULE nrtype
             REAL(KIND=8) :: z
         END FUNCTION template_function3
     END INTERFACE
+    type household
+        integer :: employmentState
+        real(DP) :: capital
+    end type household
+
 END MODULE nrtype

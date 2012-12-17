@@ -332,10 +332,10 @@ contains
         REAL(DP), DIMENSION(:,:,:) :: values
         REAL(DP), DIMENSION(:,:,:) :: splineParams
 
-        allocate(v(n_z,n_s,size(values,dim=2)))
+        allocate(v(n_z,n_s,size(values,dim=3)))
         v=values
 
-        allocate(y2(n_z,n_s,size(values,dim=2)))
+        allocate(y2(n_z,n_s,size(values,dim=3)))
         y2=splineParams
     end subroutine wrapperInit
 
@@ -379,12 +379,21 @@ contains
         do i=1,n_z
             do j=1,n_s
                 interpolated(i,j)=splint(a,v(i,j,:),y2(i,j,:),x)
+
+                if(isNaN(interpolated(i,j)))then
+                    print *,"interpolated value in value function is NaN"
+                    print *,i,j,x
+                    print *,a
+                    print *,v(i,j,:)
+                    print *,y2(i,j,:)
+                    stop 0
+                end if
             end do
         end do
-        rp=1.0D0
+        rp=0.0D0
         do i=1,n_z
             do j=1,n_s
-                rp=rp*transition(currentAggState,currentState,i,j)*interpolated(i,j)
+                rp=rp+transition(currentAggState,currentState,i,j)*interpolated(i,j)
             end do
         end do
         temp = a(currentCapital)*(1+r)+s(currentState)*w-x
@@ -394,6 +403,11 @@ contains
         z=-(log(temp)+beta*rp)
         if(z<-10D50)then
             print *,"value function too low"
+            print *,temp,beta,rp
+            stop 0
+        end if
+        if(isNaN(z))then
+            print *, "value function is NaN"
             print *,temp,beta,rp
             stop 0
         end if
@@ -409,6 +423,10 @@ module aiyagariSolve
 
     REAL(DP), parameter                   ::  phi=.9D0,sigma=.4D0
     integer, parameter                  ::  n_a=301
+    integer, parameter                  :: myseed = 4567
+    integer, parameter                  :: periodsForConv = 11000
+    integer, parameter                  :: periodsToCut = 1000
+    integer, parameter                  :: numHouseHolds = 10000
 
     !******************
     ! These are here because of screwey splines
@@ -416,7 +434,7 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.0D0, a_max=35.0D0
+    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.1D0, a_max=35.0D0
     REAL(DP), parameter                   ::  k_min=.01D0, k_max = a_max
     REAL(DP), parameter                   ::  beta=0.90
     integer, parameter                  ::  maxit=2000
@@ -426,9 +444,10 @@ module aiyagariSolve
     integer                  ::  n_s   ! The number of employment states
     integer                  ::  n_k   ! The number of capital levels
 
-    REAL(DP), allocatable, dimension(:)              ::  s,stationary
-    REAL(DP), allocatable, dimension(:)   ::  zShocks, ssEmployment
+    REAL(DP), allocatable, dimension(:)              ::  s,stationary,zShocks
+    REAL(DP), allocatable, dimension(:,:)   ::  ssEmployment
     REAL(DP), allocatable, dimension(:,:,:,:)  ::  transition
+    REAL(DP), allocatable, dimension(:,:) :: zTransition
     REAL(DP), dimension(n_a)              ::  a
     REAL(DP), allocatable, dimension(:)   ::  k
     REAL(DP)                              :: capShare
@@ -486,7 +505,7 @@ contains
         firstCall = .true.
     end subroutine setParams
 
-    subroutine allocateArrays(mn_s,mn_z,mn_k)
+    subroutine allocateArrays(mn_z,mn_s,mn_k)
         INTEGER(I4B), intent(IN) :: mn_s, mn_z,mn_k
 
         n_s=mn_s
@@ -496,8 +515,9 @@ contains
         allocate(k(n_k))
         allocate(stationary(n_s))
         allocate(zShocks(n_z))
-        allocate(ssEmployment(n_s))
+        allocate(ssEmployment(n_z,n_s))
         allocate(transition(n_z,n_s,n_z,n_s))
+        allocate(ztransition(n_z,n_z))
         allocate(v(n_z,n_k,n_s,n_a,2))
         allocate(g(n_z,n_k,n_s,n_a))
         allocate(lastStateV(n_z,n_k,n_s,n_a))
@@ -510,6 +530,7 @@ contains
         deallocate(zShocks)
         deallocate(ssEmployment)
         deallocate(transition)
+        deallocate(ztransition)
         deallocate(v)
         deallocate(g)
         deallocate(lastStateV)
@@ -536,6 +557,8 @@ contains
         ! First, solve the steady state version of the model with no aggregate shocks.
         !*************************************************************************
         call allocateArrays(1,2,1)
+        s(0)=0.0D0
+        s(1)=1.0D0
         funcParam => valueFunction
         func => aggregateBondsSetR
         ! we initialize the value function
@@ -545,7 +568,8 @@ contains
         g=0D0
 
         zShocks(1)=1.0D0
-        ssEmployment(1)=0.93D0
+        ssEmployment(1,1)=0.07D0
+        ssEmployment(1,2)=0.93D0
 
         !***********************************************************************
         ! This is not the most efficient, but it is clearer to understand what is happening.
@@ -559,6 +583,7 @@ contains
         transition(1,1,1,2) = 0.93D0
         transition(1,2,1,1) = 0.07D0
         transition(1,2,1,2) = 0.93D0
+        ztransition(1,1) = 1.0D0
 
         temp=brent(func,0.01D0,0.09D0,0.12D0,toll,xmin)
         call deallocateArrays()
@@ -572,7 +597,7 @@ contains
 
         zShocks=(/0.99D0,1.01D0/)
         s=(0.0D0,1.0D0)
-        ssEmployment=(/0.9D0,0.96D0/)
+        ssEmployment=reshape((/0.9D0,0.96D0,0.1D0,0.04D0/),(/2,2/))
 
         !***********************************************************************
         ! Now iterate to find stuff.
@@ -604,6 +629,11 @@ contains
         transition(2,2,2,1) = 0.024306D0
         transition(2,2,2,2) = 0.8506941D0
 
+        ztransition(1,1) = transition(1,1,1,1)+transition(1,1,1,2)
+        ztransition(1,2) = 1-ztransition(1,1)
+        ztransition(2,2) = transition(2,2,2,1)+transition(2,2,2,2)
+        ztransition(2,2) = 1-ztransition(2,2)
+
         !************************************************************************
         ! initial guess for phi0 and phi1
         !************************************************************************
@@ -633,9 +663,9 @@ contains
         REAL(DP):: totalCapital
         INTEGER(I4B) :: states
 
-        do states=1,size(zShocks)
-            k(1) = capitalCalc(r,ssEmployment(states),zShocks(states))
-            wFixed=deriv2Func(k(1),ssEmployment(states),zShocks(states))
+        do states=1,n_z
+            k(1) = capitalCalc(r,ssEmployment(states,2),zShocks(states))
+            wFixed=deriv2Func(k(1),ssEmployment(states,2),zShocks(states))
             totalCapital=aggregateBonds(r,wFixed,1)
             z=abs(totalCapital-k(1))
         end do
@@ -650,9 +680,7 @@ contains
         REAL(DP), INTENT(IN) :: r,w
         INTEGER(I4B), INTENT(IN) :: currentCap
         REAL(DP) :: aggK
-        INTEGER :: iterCount, i,j
-        REAL(DP)  ::  incr, totalCapital
-        REAL(DP), dimension(sizeof(ssEmployment),sizeof(zShocks),n_a-bottomChop-topChop) ::  steadyStateCapital
+        INTEGER :: i,j
 
         rFixed=r
         wFixed=w
@@ -663,21 +691,16 @@ contains
         open(unit=1,file=policyOutput)
         write(1,*) a(:)
         do i=1,n_z
-            write(1,*) g(i,aggK,:,:)
+            do j=1,n_s
+                write(1,*) g(i,currentCap,j,:)
+            end do
         end do
         close(1)
 
-            !*****************************************************
-            ! find the steady state capital
-            !*****************************************************
-        call findSteadyState(g(1,:,:),steadyStateCapital)
-
-        !**************************************************
-        ! now, calculate total capital
-        !**************************************************
-        totalCapital = dot_product(sum(steadyStateCapital,dim=1),a(bottomChop+1:n_a-topChop))
-        aggK = totalCapital
-
+        !*****************************************************
+        ! find the steady state capital
+        !*****************************************************
+        aggK=findSteadyStateCapital(.true.)
     end function aggregateBonds
 
 
@@ -714,6 +737,9 @@ contains
                         v(i,aggK,j,it,2)=-callBrent(i,j,it,funcParam,kr1,kr2,kr3,toll,g(i,aggK,j,it))
                         if(isNAN(v(i,aggK,j,it,2)))then
                             print *,"error, value function is nan"
+                            print *,i,j,it
+                            print *,kr1,kr2,kr3
+                            flush(6)
                             stop 0
                         end if
                     end do
@@ -727,7 +753,7 @@ contains
             end if
             if (maxval(abs(v(:,aggK,:,:,2)-v(:,aggK,:,:,1))) .lt. toll) then
 #ifdef DOPRINTS
-                print*,"done: ",iter, "r: ",r, "w: ",wFixed
+                print*,"done: ",iter, "r: ",rFixed, "w: ",wFixed
                 flush(6)
 #endif
                 exit
@@ -735,139 +761,81 @@ contains
 
             v(:,aggK,:,:,1)=v(:,aggK,:,:,2)
         end do
-
         lastStateV(:,aggK,:,:) = v(:,aggK,:,:,2)
 
     end subroutine  getPolicyForCapital
 
-    subroutine findSteadyState(capitalPolicyOrig, statDist)
-        !INPUTS: capitalPolicy - the policy function for each state
-        !OUTPUTS: statDist - the stationary dist (note: pdf, not cdf)
-        INTEGER, parameter :: capitalCount = n_a-bottomChop-topChop
-        REAL(DP), dimension(n_z,n_a), INTENT(IN) :: capitalPolicyOrig
-        real(DP), dimension(n_z,capitalCount), intent(out) :: statDist
-        real(DP), dimension(n_z,capitalCount) ::f_o, f_o_hat, f_n
-        real(DP) :: diff, temp
-        INTEGER :: i,j, counter
-        REAL(DP), dimension(n_z,capitalCount) :: capitalPolicy
-        REAL(DP), dimension(capitalCount) :: newCapital
+    FUNCTION findSteadyStateCapital(noShocks) RESULT(y)
+        LOGICAL, INTENT(IN) :: noShocks
+        REAL(DP) :: y
 
+        INTEGER(I4B) :: i,j,ii
+        REAL(DP) :: num
+        INTEGER(I4B), DIMENSION(periodsForConv+periodsToCut) :: z
+        REAL(DP), DIMENSION(periodsForConv+periodsToCut) :: aggK
+        TYPE(household), DIMENSION(numHouseholds) :: hhs
+        REAL(DP), DIMENSION(n_s,n_a) :: gint
 
-        newCapital = a(bottomChop+1:n_a-topChop)
-        capitalPolicy = capitalPolicyOrig(:,bottomChop+1:n_a-topChop)
+        !first, draw T states for the economy
+        num= rand(myseed)
+        if(num<0.5D0)then
+            z(1)=1
+        else
+            z(1)=2
+        end if
 
-        do i=1,n_z
-            do j=2,capitalCount
-                if(capitalPolicy(i,j)<capitalPolicy(i,j-1)) then
-                    print *,"not monotonic.", i, j
-                    print *,capitalPolicy(i,j-1),capitalPolicy(i,j)
-                    stop 0
-                end if
-            end do
-        end do
-        !setting initial guess to uniform dist across asset grid. First we have it
-        !a cdf, and then convert to the appropriate pdf
-        do i=1,n_z
-            do j=1,capitalCount
-                statDist(i,j) = (newCapital(j) - newCapital(1))/(newCapital(capitalCount)-newCapital(1))*dble(1.0_dp/n_z)
-            end do
+        do i=2,periodsForConv+periodsToCut
+            num=rand(0)
+            if(num<zTransition(z(i-1),1))then
+                z(i)=z(i-1)
+            else
+                z(i)=mod(z(i-1)+1,2)
+            end if
         end do
 
-        f_n=statDist
+        !we now have our series of economic shocks. Now let's set initial distribution
+        do i=1,numHouseholds,2
+            hhs(i)%employmentState=1
+            hhs(i)%capital=a_max*(numHouseholds-(i-1))/numHouseholds
+            hhs(i+1)%employmentState=2
+            hhs(i+1)%capital=a_max*(numHouseholds-(i-1))/numHouseholds
+        end do
 
-        ! time to iterate
-        diff=100
-        counter = 0
-        do while((diff>tol2) .and. (counter<maxit))
-            counter = counter + 1
+        !calculate aggregate capital
+        aggK(1) = sum(hhs(:)%capital)
 
-            f_o=f_n
+        !now let's update
+        do i=2,periodsForConv+periodsToCut
+            !interpolate all the policy functions to the current aggregate capital level
+            if(noshocks)then
+                gint = g(1,1,:,:)
+            else
+                do j=1,n_s
+                    do ii=1,n_a
+                        gint(j,ii)=linear(g(z(i-1),:,j,ii),k,aggK(i-1))
+                    end do
+                end do
+            end if
 
-            do i=1,n_z
-                do j=1,capitalCount
-                    f_o_hat(i,j) = linear(f_o(i,:),capitalPolicy(i,:),newCapital(j))
+            !set this period's employment and capital levels
+            do j=1,numHouseholds
+                hhs(j)%capital=linear(gint(hhs(j)%employmentState,:),a,hhs(j)%capital)
+                num=rand(0)
+                hhs(j)%employmentState=1
+                do ii=1,n_s-1
+                    if(num>transition(z(i-1),hhs(j)%employmentState,z(i),ii))then
+                        hhs(j)%employmentState=ii+1
+                    else
+                        exit
+                    end if
                 end do
             end do
 
-            ! need to make sure monotonic and bounded between 0 and 1
-            do i=1,n_z
-                diff=-1e-5
-                do j=1,capitalCount
-                    if(f_o_hat(i,j)>1.0_dp) then
-                        f_o_hat(i,j)=1.0_dp
-                    else if (f_o_hat(i,j)<0.0_dp) then
-                        f_o_hat(i,j)=0.0D0
-                    else if (isnan(f_o_hat(i,j))) then
-                        print *, "Error: f_o_hat is NAN. Counter:",counter," shock: ",i,"element: ",j
-                        print *,"Capital Grid"
-                        print *,newCapital(:)
-                        print *,"Policy Fn"
-                        print *,capitalPolicy(j,:)
-                        print *,"f_o"
-                        print *,f_o(i,:)
-                        print *,"f_o_hat"
-                        print *,f_o_hat(i,:)
-                        stop 0
-                    end if
-
-                    !add a test: if non-monotonic, fail
-                    if(diff>f_o_hat(i,j)) then
-                        print *, "Error: Non-monotonic cdf function. Counter:",counter," element: ", j, " shock: ",i
-                        print *,"value_old: ",diff, " value_new: ",f_o_hat(i,j)
-                        print *,"f_o"
-                        print *,capitalPolicy(i,:)
-                        print *,f_o(i,:)
-                        print *,"f_o_hat"
-                        print *,newCapital
-                        print *,f_o_hat(i,:)
-                        stop 0
-                    end if
-                    diff=f_o_hat(i,j)
-                end do
-            end do
-
-! THIS IS INCORRECT            f_n = matmul(transpose(transition), f_o_hat)
-
-            !* Fix so that total cdf is 1
-            do i=1,n_z
-                do j=1,capitalCount
-                    temp = f_n(i,j) / f_n(i,capitalCount)
-
-                    if (isnan(temp))then
-                        print *,"nan: ",i,j, counter
-                        print *,f_n(i,j),f_n(i,capitalCount)
-                        print *,f_o_hat(i,:)
-                        print *,f_o_hat(1,j),f_o_hat(2,j),f_o_hat(3,j)
-                        flush(6)
-                        stop 0
-                    end if
-
-                    f_n(i,j)=temp
-                end do
-            end do
-
-            diff = maxval(abs(f_n - f_o))
+            aggK(i)=sum(hhs(:)%capital)
         end do
-
-        do i=1,n_z
-            f_n(i,:)=f_n(i,:)*stationary(i)
-        end do
-
-        statDist = f_n
-        do i=capitalCount,2,-1
-            statDist(:,i) = statDist(:,i) - statDist(:,i-1)
-        end do
-        do i=1,n_z
-            statDist(i,1) = max(0.0D0,stationary(i)-sum(statDist(i,:)))
-        end do
-
-        open(unit=1,file=distribOutput)
-        do j=1,capitalCount
-            write(1,*) a(j+bottomChop),statDist(:,j)
-        end do
-        close(1)
-
-    end subroutine findSteadyState
+        y=aggK(periodsForConv+periodsToCut)
+        stop 0
+    end function findSteadyStateCapital
 
 end module aiyagariSolve
 
@@ -878,22 +846,17 @@ program main
 
     use aiyagariSolve
     use brentWrapper
-    REAL(DP) :: RRA, EIS, intDiff,xmin
+    REAL(DP) :: intDiff,xmin
     REAL(DP) :: capitalShare = 0.33D0
     PROCEDURE(template_function), POINTER :: func
     PROCEDURE(template_function2), POINTER :: d1func, d2func
     PROCEDURE(template_function3), POINTER :: func2
-    REAL(DP) :: temp
-    REAL(DP), DIMENSION(2) :: startPoint
-    REAL(DP), DIMENSION(3,2) :: startPoint2
-    REAL(DP), DIMENSION(3) :: startVals
-    INTEGER :: temp2,printEvery=500,whichSet=3
-    character(LEN=15) :: arg1,arg2,arg3,arg4
+    INTEGER :: temp2,printEvery=50,whichSet=3
+    character(LEN=15) :: arg1,arg2
     !************
     ! Timing variables
     !************
     real(DP) :: startTime, endTime
-    INTEGER :: rank, ierr
 
     temp2=COMMAND_ARGUMENT_COUNT()
     if(temp2 > 0)then
@@ -905,34 +868,19 @@ program main
         read (arg1,*) printEvery
     end if
 
-    CALL MPI_INIT(ierr)
-    CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
-
-    if(rank ==0)then
-        print *,"Question               RRA                    EIS                        r  &
-                &                         K                    Error                       Time(s)"        
-        flush(6)
-    end if
-
     d1func => d1prod
     d2func => d2prod
+    func2 => impliedCapital
 
     arg1="policy"
     arg2= "distrib"
-    call setParams(d1func, d2func, impliedCapital, arg1,arg2 , printEvery, capitalShare,&
+    call setParams(d1func, d2func, func2, arg1,arg2 , printEvery, capitalShare,&
         &0.1D0, 1.0D0)
-    if(rank ==0)then
-        call CPU_TIME(startTime)
-    end if
+    call CPU_TIME(startTime)
     call beginKrusellSmith()
-    if(rank ==0)then
-        call CPU_TIME(endTime)
-        print *,"a             ",RRA,EIS,xmin,impliedCapital(xmin), intDiff, endTime-startTime
-        flush(6)
-    end if
-
-    CALL MPI_FINALIZE(ierr)
-
+    call CPU_TIME(endTime)
+    print *,"a             ",xmin, intDiff, endTime-startTime
+    flush(6)
 
 contains
     function production(capital,labour,shock) RESULT(y)
