@@ -293,69 +293,71 @@ module brentWrapper
 
     implicit none
 
-    INTEGER :: n_s, n_z, currentState, currentAggState, currentCapital
+    INTEGER :: n_s, n_z, n_k,n_a,currentState, currentAggState, currentCapital, currentAggCapital
     REAL(DP), allocatable, DIMENSION(:) :: a, s
+    REAL(DP), allocatable, DIMENSION(:,:) :: r, w
     REAL(DP), allocatable, DIMENSION(:,:,:,:) :: transition
-    REAL(DP), allocatable, DIMENSION(:,:,:) :: v, y2
-    REAL(DP) :: beta,r,w,z,delta
+    REAL(DP), allocatable, DIMENSION(:,:,:,:) :: v, y2
+    REAL(DP) :: beta,z,delta
 
-    PRIVATE n_s,n_z,currentState,currentCapital,a,s,v,y2,transition,beta,r,w,delta
-    PRIVATE currentAggState
+    PRIVATE n_s,n_z,n_k,n_a,currentState,currentCapital,a,s,v,y2,transition,beta,r,w,delta
+    PRIVATE currentAggState, currentAggCapital
 
 contains
 
-    subroutine wrapperCreate(pn_s,pn_z,grid,mytransition,mystates,mybeta,myr,myw,mydelta)
-        INTEGER(I4B), INTENT(IN) :: pn_s, pn_z
+    subroutine wrapperCreate(pn_s,pn_z,pn_k,grid,mytransition,mystates,mybeta,myr,myw,mydelta)
+        INTEGER(I4B), INTENT(IN) :: pn_s, pn_z,pn_k
         REAL(DP), DIMENSION(:), INTENT(IN) ::grid
-        REAL(DP), DIMENSION(:) :: mystates
-        REAL(DP), DIMENSION(:,:,:,:) :: mytransition
-        REAL(DP), INTENT(IN) :: mybeta,myr,myw,mydelta
+        REAL(DP), DIMENSION(:), INTENT(IN) :: mystates
+        REAL(DP), DIMENSION(:,:,:,:), INTENT(IN) :: mytransition
+        REAL(DP), DIMENSION(:,:), INTENT(IN) :: myr,myw
+        REAL(DP), INTENT(IN) :: mybeta,mydelta
 
         n_s=pn_s
         n_z=pn_z
-
+        n_k=pn_k
+        n_a=size(grid)
         allocate(s(n_s))
         s=mystates
-
-        allocate(a(size(grid)))
+        allocate(a(n_a))
         a=grid
-
         allocate(transition(n_z,n_s,n_z,n_s))
         transition=mytransition
-
+        allocate(r(n_z,n_k))
+        r=myr
+        allocate(w(n_z,n_k))
+        w=myw
         beta=mybeta
         delta=mydelta
-        r=myr
-        w=myw
     end subroutine wrapperCreate
 
     subroutine wrapperInit(values,splineParams)
-        REAL(DP), DIMENSION(:,:,:) :: values
-        REAL(DP), DIMENSION(:,:,:) :: splineParams
+        REAL(DP), DIMENSION(:,:,:,:) :: values
+        REAL(DP), DIMENSION(:,:,:,:) :: splineParams
 
-        allocate(v(n_z,n_s,size(values,dim=3)))
+        allocate(v(n_z,n_k,n_s,n_a))
         v=values
 
-        allocate(y2(n_z,n_s,size(values,dim=3)))
+        allocate(y2(n_z,n_k,n_s,n_a))
         y2=splineParams
     end subroutine wrapperInit
 
     subroutine wrapperClean()
         deallocate(v)
-        if(allocated(y2)) then
-            deallocate(y2)
-        end if
+        deallocate(y2)
     end subroutine wrapperClean
 
     subroutine wrapperDestroy()
         deallocate(a)
         deallocate(transition)
         deallocate(s)
+        deallocate(r)
+        deallocate(w)
     end subroutine wrapperDestroy
 
-    function callBrent(econState, state,capital, myfunc, kr1, kr2, kr3, tol, minPoint) RESULT (y)
+    function callBrent(econState, aggCap, state,capital, myfunc, kr1, kr2, kr3, tol, minPoint) RESULT (y)
         IMPLICIT NONE
-        INTEGER, INTENT(IN) :: econState, state, capital
+        INTEGER, INTENT(IN) :: econState, aggCap, state, capital
         REAL(dp), INTENT(IN) :: kr1,kr2,kr3,tol
         REAL(dp), INTENT(OUT) :: minPoint
         PROCEDURE(template_function), POINTER :: myfunc
@@ -364,6 +366,8 @@ contains
         currentState = state
         currentCapital = capital
         currentAggState = econState
+        currentAggCapital = aggCap
+
         y=brent(myfunc, kr1, kr2, kr3, tol, minPoint)
 
     end function callBrent
@@ -379,14 +383,14 @@ contains
 
         do i=1,n_z
             do j=1,n_s
-                interpolated(i,j)=splint(a,v(i,j,:),y2(i,j,:),x)
+                interpolated(i,j)=splint(a,v(i,currentAggCapital,j,:),y2(i,currentAggCapital,j,:),x)
 
                 if(isNaN(interpolated(i,j)))then
                     print *,"interpolated value in value function is NaN"
                     print *,i,j,x
                     print *,a
-                    print *,v(i,j,:)
-                    print *,y2(i,j,:)
+                    print *,v(i,currentAggCapital,j,:)
+                    print *,y2(i,currentAggCapital,j,:)
                     stop 0
                 end if
             end do
@@ -397,7 +401,8 @@ contains
                 rp=rp+transition(currentAggState,currentState,i,j)*interpolated(i,j)
             end do
         end do
-        temp = a(currentCapital)*(1+r-delta)+s(currentState)*w-x
+        temp = a(currentCapital)*(1+r(currentAggState,currentAggCapital)-delta)+&
+            s(currentState)*w(currentAggState,currentAggCapital)-x
         if(temp < eps) then
             temp=eps
         end if
@@ -421,16 +426,15 @@ contains
 
 end module brentWrapper
 
-
 module aiyagariSolve
     USE nrtype
     USE brentWrapper
     implicit none
 
-    REAL(DP), parameter                   ::  phi=.9D0,sigma=.4D0
+    REAL(DP), parameter                   ::  sigma=.4D0
     integer, parameter                  ::  n_a=301
     integer                             :: myseed = 4567
-    integer, parameter                  :: periodsForConv = 10000
+    integer, parameter                  :: periodsForConv = 5000
     integer, parameter                  :: periodsToCut = 1000
     integer, parameter                  :: numHouseholds = 50000
 
@@ -444,23 +448,26 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  k_min=20D0, k_max = 100.0D0
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
-    REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-8
+    REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-6
 
     integer                  ::  n_z   ! The number of aggregate states
     integer                  ::  n_s   ! The number of employment states
     integer                  ::  n_k   ! The number of capital levels
 
-    REAL(DP), allocatable, dimension(:)              ::  s,stationary,zShocks
-    REAL(DP), allocatable, dimension(:,:)   ::  ssEmployment
+    REAL(DP), allocatable, dimension(:)              ::  s,stationary,zShocks,k
+    REAL(DP), allocatable, dimension(:,:)   ::  ssEmployment, zTransition
     REAL(DP), allocatable, dimension(:,:,:,:)  ::  transition
-    REAL(DP), allocatable, dimension(:,:) :: zTransition
     REAL(DP), dimension(n_a)              ::  a
-    REAL(DP), allocatable, dimension(:)   ::  k
     REAL(DP)                              :: capShare
-    REAL(DP)                              :: wFixed=1.0D0,rFixed=0.1D0
+    REAL(DP), allocatable, dimension(:,:):: wFixed,rFixed
     REAL(DP), allocatable, dimension(:,:,:,:,:):: v
     REAL(DP), allocatable, dimension(:,:,:,:)  :: g
     REAL(DP), allocatable, dimension(:,:,:,:)  ::  lastStateV
+    TYPE(household), dimension(numHouseholds)  ::  ssDistrib
+    REAL(DP), DIMENSION(periodsForConv) :: lastKSeq
+    REAL(DP),allocatable,dimension(:,:) :: phi
+
+
     integer                       ::  reportNum
     PROCEDURE(template_function), POINTER :: funcParam
     PROCEDURE(template_function2), POINTER :: deriv1Func, deriv2Func
@@ -476,8 +483,7 @@ module aiyagariSolve
     PRIVATE aggregateBonds, firstCall
 
 contains
-    subroutine setParams(d1Func, d2Func, capitalFunc,file1, file2, capitalShare, seedParam, every, &
-        & myR, myW)
+    subroutine setParams(d1Func, d2Func, capitalFunc,file1, file2, capitalShare, seedParam, every)
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d1Func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d2Func
         PROCEDURE(template_function3), POINTER, INTENT(IN) :: capitalFunc
@@ -485,7 +491,6 @@ contains
         character(LEN=*),INTENT(IN) :: file2
         REAL(DP), INTENT(IN) :: capitalShare
         INTEGER, OPTIONAL, INTENT(IN) :: seedParam, every
-        REAL(DP), OPTIONAL, INTENT(IN) :: myR, myW
 
         capShare=capitalShare
         deriv1Func => d1Func
@@ -500,14 +505,6 @@ contains
 
         if(PRESENT(every)) then
             reportNum=every
-        end if
-
-        if(PRESENT(myW))then
-            wFixed=myW
-        end if
-
-        if(PRESENT(myR))then
-            rFixed=myR
         end if
 
         policyOutput = file1
@@ -531,6 +528,9 @@ contains
         allocate(v(n_z,n_k,n_s,n_a,2))
         allocate(g(n_z,n_k,n_s,n_a))
         allocate(lastStateV(n_z,n_k,n_s,n_a))
+        allocate(wFixed(n_z,n_k))
+        allocate(rFixed(n_z,n_k))
+        allocate(phi(n_z,2))
     end subroutine allocateArrays
 
     subroutine deallocateArrays()
@@ -544,15 +544,22 @@ contains
         deallocate(v)
         deallocate(g)
         deallocate(lastStateV)
+        deallocate(wFixed)
+        deallocate(rFixed)
+        deallocate(phi)
+
     end subroutine deallocateArrays
 
     subroutine beginKrusellSmith()
         REAL(DP)  ::  incr
-        REAL(DP),dimension(2,n_z) :: phi
+        REAL(DP),dimension(n_z,2) :: vals
+        REAL(DP),dimension(n_z) ::  aggK,aggKp
 
         INTEGER :: i,j,ii
         REAL(DP) :: temp,xmin
         PROCEDURE(template_function), POINTER :: func
+
+        funcParam => valueFunction
 
         !**************************************************************************
         ! We set up the grid of asset values based on the curvature, curv
@@ -569,7 +576,6 @@ contains
         call allocateArrays(1,2,1)
         s(1)=0.0D0
         s(2)=1.0D0
-        funcParam => valueFunction
         func => aggregateBondsSetR
         ! we initialize the value function
         ! and we set up an initial guess for it
@@ -595,9 +601,12 @@ contains
         transition(1,2,1,2) = 0.93D0
         ztransition(1,1) = 1.0D0
 
-        temp=brent(func,0.05D0,0.1349D0,0.17D0,toll,xmin)
+        temp=brent(func,0.05D0,0.1349D0,0.17D0,tol2,xmin)
         call deallocateArrays()
-        stop 0
+
+        !**********************************************************************
+        ! Now do proper Krusell-Smith algorithm
+        !********************************************************************
 
         call allocateArrays(2,2,50)
         ! Set aggregate capital grid over which we want to evaluate, K
@@ -648,10 +657,26 @@ contains
         !************************************************************************
         ! initial guess for phi0 and phi1
         !************************************************************************
-        !        phi(0,:)=log(...)
-        phi(1,:)=0.0D0
-
+        aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
+        phi(:,1)=log(aggK(1))
+        phi(:,2)=0.0D0
+        vals(:,1)=1.0D0
+        vals(:,2)=temp
         ! given K, find K'
+        do i=1,n_z
+            aggKp(i)=dot_product(phi(i,:),vals(:,i))
+        end do
+
+        do i=1,n_z
+            do j=1,n_k
+                wFixed(i,j)=deriv2Func(k(j),ssEmployment(i,2),zShocks(i))
+                rFixed(i,j)=deriv1Func(k(j),ssEmployment(i,2),zShocks(i))
+            end do
+        end do
+
+        call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
+        call getAllPolicy()
+        call wrapperDestroy()
 
         ! interpolate V0(a,K) on K', keeping assets constant.
         ! So now we have V0(a,K') for a grid of points, a
@@ -667,38 +692,43 @@ contains
     end subroutine beginKrusellSmith
 
     function aggregateBondsSetR(r) RESULT (z)
+        !*************************************
+        !Only call this when we have no aggregate shocks
+        !*************************************
         ! inputs: r - the interest rate to test
         ! outputs: z - the aggregate level of borrowing
         REAL(DP), INTENT(IN) :: r
         REAL(DP) :: z
         REAL(DP):: totalCapital
-        INTEGER(I4B) :: states
+        REAL(DP),dimension(periodsForConv) :: aggK
 
-        do states=1,n_z
-            k(1) = capitalCalc(r,ssEmployment(states,2),zShocks(states))
-            wFixed=deriv2Func(k(1),ssEmployment(states,2),zShocks(states))
-            totalCapital=aggregateBonds(r,wFixed,1)
-            z=abs(totalCapital-k(1))
-            print *,"Implied: ",k(1),"totalCapital: ",totalCapital
-            flush(6)
-        end do
+        k(1) = capitalCalc(r,ssEmployment(1,2),zShocks(1))
+        aggK=aggregateBonds(1,.true.)
+        totalCapital=aggK(periodsForConv)
+        z=abs(totalCapital-k(1))
     end function aggregateBondsSetR
 
-    function aggregateBonds(r,w,currentCap) RESULT (aggK)
+    function aggregateBonds(currentCap,noAggShocks) RESULT (aggK)
         ! inputs: r - the interest rate to test
         !         w - the wages
         !         z - the current aggregate shock level
         !         currentCap - the current aggregate capital level
         ! outputs: aggK - the aggregate level of borrowing
-        REAL(DP), INTENT(IN) :: r,w
         INTEGER(I4B), INTENT(IN) :: currentCap
-        REAL(DP) :: aggK
+        LOGICAL, INTENT(IN) :: noAggShocks
+        REAL(DP),dimension(periodsForConv) :: aggK
         INTEGER :: i,j
 
-        rFixed=r
-        wFixed=w
-        call wrapperCreate(n_s,n_z,a,transition,s,beta,r,w, delta)
-        call getPolicyForCapital(currentCap)
+        do i=1,n_z
+            do j=1,n_k
+                wFixed(i,j)=deriv2Func(k(j),ssEmployment(i,2),zShocks(i))
+                rFixed(i,j)=deriv1Func(k(j),ssEmployment(i,2),zShocks(i))
+            end do
+        end do
+
+        call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
+         !       call getPolicyForCapital(currentCap)
+        call getAllPolicy(noAggShocks)
         call wrapperDestroy()
 
         open(unit=1,file=policyOutput)
@@ -713,7 +743,7 @@ contains
         !*****************************************************
         ! find the steady state capital
         !*****************************************************
-        aggK=findSteadyStateCapital(.true.)
+        aggK=findSteadyStateCapital(noAggShocks)
     end function aggregateBonds
 
 
@@ -721,7 +751,7 @@ contains
         INTEGER, INTENT(IN)                 :: aggK
         INTEGER                             :: i,it,j,iter
         REAL(DP)                            :: tempD,tempD2
-        REAL(DP), dimension(n_z,n_s,n_a)    :: y2
+        REAL(DP), dimension(n_z,n_k,n_s,n_a)    :: y2
         REAL(DP)                            :: kr1,kr2,kr3
         !************
         ! Timing variables
@@ -732,15 +762,24 @@ contains
         !**************************************************************************
         ! we begin the iteration
         !**************************************************************************
+        if(reportNum<maxit)then
+            print *," "
+            print *, "Value Iteration-",k(aggK)
+            print *,"--------------------------------------"
+            print *,"      state            r                       w                        iter &
+                            &        diff              Time"            
+            flush(6)
+        end if
+
         do iter=1,maxit
             do j=1,n_s
                 do i=1,n_z
                     tempD=(v(i,aggK,j,2,1)-v(i,aggK,j,1,1))/(a(2)-a(1))
                     tempD2=(v(i,aggK,j,n_a,1)-v(i,aggK,j,n_a-1,1))/(a(n_a)-a(n_a-1))
-                    call spline(a,v(i,aggK,j,:,1),tempD,tempD2,y2(i,j,:))
+                    call spline(a,v(i,aggK,j,:,1),tempD,tempD2,y2(i,aggK,j,:))
                 end do
             end do
-            call wrapperInit(v(:,aggK,:,:,1),y2)
+            call wrapperInit(v(:,aggK:aggK,:,:,1),y2)
             do it=1,n_a
                 do j=1,n_s
                     do i=1,n_z
@@ -750,9 +789,9 @@ contains
                         else
                             kr1=g(i,aggK,j,it-1)
                         end if
-                        kr3=min(a(it)*(1+rFixed-delta)+s(j)*wFixed,a(n_a))
+                        kr3=min(a(it)*(1+rFixed(i,aggK)-delta)+s(j)*wFixed(i,aggK),a(n_a))
                         kr2=(kr1+kr3)/2D0
-                        v(i,aggK,j,it,2)=-callBrent(i,j,it,funcParam,kr1,kr2,kr3,toll,g(i,aggK,j,it))
+                        v(i,aggK,j,it,2)=-callBrent(i,aggK,j,it,funcParam,kr1,kr2,kr3,toll,g(i,aggK,j,it))
                         if(isNAN(v(i,aggK,j,it,2)))then
                             print *,"error, value function is nan"
                             print *,i,j,it
@@ -776,9 +815,10 @@ contains
             call wrapperClean()
             if( (mod(iter,reportNum)==1))then
                 call CPU_TIME(endTime)
-                print *,"r:",rFixed,"w:",wFixed,"iter: ",iter,&
-                    &"diff: ",maxval(abs(v(:,aggK,:,:,2)-v(:,aggK,:,:,1))),"Time: ",endTime-startTime
-                flush(6)
+                do i=1,n_z
+                    print *,i,rFixed(i,aggK),wFixed(i,aggK),iter,maxval(abs(v(i,aggK,:,:,2)-v(i,aggK,:,:,1))),endTime-startTime
+                    flush(6)
+                end do
             end if
             if (maxval(abs(v(:,aggK,:,:,2)-v(:,aggK,:,:,1))) .lt. toll) then
 #ifdef DOPRINTS
@@ -793,18 +833,156 @@ contains
         lastStateV(:,aggK,:,:) = v(:,aggK,:,:,2)
     end subroutine  getPolicyForCapital
 
+    subroutine getAllPolicy(inSS)
+        LOGICAL, OPTIONAL, INTENT(IN)       :: inSS
+        LOGICAL                             :: inSS2
+
+        INTEGER                             :: i,it,j,iter,aggK,ii
+        REAL(DP)                            :: tempD,tempD2
+        REAL(DP), dimension(n_z,n_k,n_s,n_a)    :: y2
+        REAL(DP)                            :: kr1,kr2,kr3
+        real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY
+        REAL(DP),dimension(n_z,n_k) :: kprime
+
+        !************
+        ! Timing variables
+        !************
+        real(DP) :: startTime, endTime
+
+        call CPU_TIME(startTime)
+        if(present(inSS))then
+            inSS2=inSS
+        else
+            inSS2=.false.
+        end if
+
+        !**************************************************************************
+        ! we begin the iteration
+        !**************************************************************************
+        do iter=1,maxit
+
+            if (.not. inSS2)then
+                !Get splines for each a, across all k
+                do ii = 1,n_a
+                    do j=1,n_s
+                        do i=1,n_z
+                            tempD=(v(i,2,j,ii,1)-v(i,1,j,ii,1))/(k(2)-k(1))
+                            tempD2=(v(i,n_k,j,ii,1)-v(i,n_k-1,j,ii,1))/(k(n_k)-k(n_k-1))
+                            call spline(k,v(i,:,j,ii,1),tempD,tempD2,y2(i,:,j,ii))
+                        end do
+                    end do
+                end do
+            end if
+
+            if(inSS2)then
+                do i=1,n_z
+                    kprime(i,:)=k
+                end do
+            else
+                do j=1,n_k
+                    do i=1,n_z
+                        kprime(i,j)=phi(i,1)+phi(i,2)*log(k(j))
+                    end do
+                end do
+            end if
+
+            !interpolate values at K'. This is what we need when we evaluate policy functions
+            do it=1,n_a
+                do j=1,n_s
+                    do aggK=1,n_k
+                        do i=1,n_z
+                            if(.not. inSS2)then
+                                tempV(i,aggK,j,it)=splint(k,v(i,:,j,it,1),y2(i,:,j,it),kprime(i,aggK))
+                            else
+                                tempV(i,aggK,j,it)=v(i,aggK,j,it,1)
+                            end if
+                        end do
+                    end do
+                end do
+            end do
+
+            !now, find a  policy function that is valid across each k'
+            do j=1,n_s
+                do aggK=1,n_k
+                    do i=1,n_z
+                        tempD = (tempV(i,aggK,j,2)-tempV(i,aggK,j,1))/(a(2)-a(1))
+                        tempD2 = (tempV(i,aggK,j,n_a)-tempV(i,aggK,j,n_a-1))/(a(n_a)-a(n_a-1))
+                        call spline(a,tempV(i,aggK,j,:),tempD,tempD2,tempY(i,aggK,j,:))
+                    end do
+                end do
+            end do
+
+            !use this single policy function for each k' (actually one for each future agg state and emloyment
+            !level (so really four in basic K-S) for evaluating next period value function
+            call wrapperInit(tempV,tempY)
+
+            !find next period's policy function
+            do it=1,n_a
+                do j=1,n_s
+                    do aggK = 1,n_k
+                        do i=1,n_z
+                            !ensure monotone policy function
+                            if(it==1)then
+                                kr1=a(1)
+                            else
+                                kr1=g(i,aggK,j,it-1)
+                            end if
+                            kr3=min(a(it)*(1+rFixed(i,aggK)-delta)+s(j)*wFixed(i,aggK),a(n_a))
+                            kr2=(kr1+kr3)/2D0
+                            v(i,aggK,j,it,2)=-callBrent(i,aggK,j,it,funcParam,kr1,kr2,kr3,toll,g(i,aggK,j,it))
+                            if(isNAN(v(i,aggK,j,it,2)))then
+                                print *,"error, value function is nan"
+                                print *,i,j,it
+                                print *,kr1,kr2,kr3
+                                flush(6)
+                                stop 0
+                            end if
+                            if(v(i,aggK,j,it,2)<-10D50)then
+                                print *,"error, value function is too low"
+                                print *,i,j,it
+                                print *,kr1,kr2,kr3
+                                print *,v(i,aggK,j,it,1),v(i,aggK,j,it,2)
+                                print *,s(j)
+                                flush(6)
+                                stop 0
+                            end if
+
+                        end do
+                    end do
+                end do
+            end do
+
+            call wrapperClean()
+            if( (mod(iter,reportNum)==1))then
+                call CPU_TIME(endTime)
+                print *,iter,maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1))),endTime-startTime
+                flush(6)
+            end if
+
+            if (maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1))) .lt. toll) then
+#ifdef DOPRINTS
+                print*,"done: ",iter
+                flush(6)
+#endif
+                exit
+            end if
+
+            v(:,:,:,:,1)=v(:,:,:,:,2)
+        end do
+        lastStateV(:,:,:,:) = v(:,:,:,:,2)
+    end subroutine  getAllPolicy
+
     FUNCTION findSteadyStateCapital(noShocks) RESULT(y)
         LOGICAL, INTENT(IN) :: noShocks
-        REAL(DP) :: y
+        REAL(DP), dimension(periodsForConv) :: y
 
         INTEGER(I4B) :: i,j,ii
         REAL(DP) :: num, tempD, tempD2
         REAL(DP), DIMENSION(n_s,n_a) :: y2
         INTEGER(I4B), DIMENSION(periodsForConv+periodsToCut) :: z
-        REAL(DP), DIMENSION(periodsForConv+periodsToCut), save :: aggK
+        REAL(DP), DIMENSION(periodsForConv+periodsToCut) :: aggK
         TYPE(household), DIMENSION(numHouseholds) :: hhs
         REAL(DP), DIMENSION(n_s,n_a) :: gint
-        LOGICAL, save :: firstTime = .true.
 
         !************
         ! Timing variables
@@ -830,20 +1008,28 @@ contains
         end do
 
         !we now have our series of economic shocks. Now let's set initial distribution
-        !if (firstTime) then
-        do i=1,numHouseholds,2
-            hhs(i)%employmentState=1
-            hhs(i)%capital=k(1)
-            hhs(i+1)%employmentState=2
-            hhs(i+1)%capital=k(1)
-        end do
-        !end if
-
+        if(noshocks)then
+            do i=1,numHouseholds,2
+                hhs(i)%employmentState=1
+                hhs(i)%capital=k(1)
+                hhs(i+1)%employmentState=2
+                hhs(i+1)%capital=k(1)
+            end do
+        else
+            hhs=ssDistrib
+        end if
 
         !calculate aggregate capital
         aggK(1) = sum(hhs(:)%capital)/numHouseholds
 
         !now let's update
+        if(reportNum<maxit)then
+            print *, "SS"
+            print *,"------------------------"
+            print *,"      iter      Capital                  Time"
+            flush(6)
+        end if
+
         do i=2,periodsForConv+periodsToCut
             !interpolate all the policy functions to the current aggregate capital level
             if(noshocks)then
@@ -881,13 +1067,15 @@ contains
 
             if( (mod(i,reportNum)==0))then
                 call CPU_TIME(endTime)
-                print *,"SS: ",i,aggK(i),"s:",endTime-startTime
+                print *,i,aggK(i),endTime-startTime
                 flush(6)
             end if
 
         end do
-        firstTime = .false.
-        y=aggK(periodsForConv+periodsToCut)
+        if(noShocks)then
+            ssDistrib=hhs
+        end if
+        y=aggK(periodsToCut+1:periodsForConv+periodsToCut)
 
         open(unit=2,file=distribOutput)
         do i=1,numHouseholds
@@ -934,8 +1122,7 @@ program main
 
     arg1="policy"
     arg2= "distrib"
-    call setParams(d1func, d2func, func2, arg1,arg2 , capitalShare, whichSet, printEvery,&
-        &0.1D0, 1.0D0)
+    call setParams(d1func, d2func, func2, arg1,arg2 , capitalShare, whichSet, printEvery)
     call CPU_TIME(startTime)
     call beginKrusellSmith()
     call CPU_TIME(endTime)
