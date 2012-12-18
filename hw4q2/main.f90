@@ -429,10 +429,10 @@ module aiyagariSolve
 
     REAL(DP), parameter                   ::  phi=.9D0,sigma=.4D0
     integer, parameter                  ::  n_a=301
-    integer, parameter                  :: myseed = 4567
-    integer, parameter                  :: periodsForConv = 3000
-    integer, parameter                  :: periodsToCut = 500
-    integer, parameter                  :: numHouseHolds = 10000
+    integer                             :: myseed = 4567
+    integer, parameter                  :: periodsForConv = 10000
+    integer, parameter                  :: periodsToCut = 1000
+    integer, parameter                  :: numHouseholds = 50000
 
     !******************
     ! These are here because of screwey splines
@@ -440,7 +440,7 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseHolds, a_max=50.0D0
+    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=50.0D0
     REAL(DP), parameter                   ::  k_min=20D0, k_max = 100.0D0
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
@@ -476,15 +476,15 @@ module aiyagariSolve
     PRIVATE aggregateBonds, firstCall
 
 contains
-    subroutine setParams(d1Func, d2Func, capitalFunc,file1, file2, every, &
-        & capitalShare, myR, myW)
+    subroutine setParams(d1Func, d2Func, capitalFunc,file1, file2, capitalShare, seedParam, every, &
+        & myR, myW)
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d1Func
         PROCEDURE(template_function2), POINTER, INTENT(IN) :: d2Func
         PROCEDURE(template_function3), POINTER, INTENT(IN) :: capitalFunc
         character(LEN=*),INTENT(IN) :: file1
         character(LEN=*),INTENT(IN) :: file2
-        INTEGER, OPTIONAL, INTENT(IN) :: every
         REAL(DP), INTENT(IN) :: capitalShare
+        INTEGER, OPTIONAL, INTENT(IN) :: seedParam, every
         REAL(DP), OPTIONAL, INTENT(IN) :: myR, myW
 
         capShare=capitalShare
@@ -493,6 +493,10 @@ contains
         capitalCalc => capitalFunc
 
         reportNum = 500
+
+        if(PRESENT(seedParam)) then
+            myseed=seedParam
+        end if
 
         if(PRESENT(every)) then
             reportNum=every
@@ -591,7 +595,7 @@ contains
         transition(1,2,1,2) = 0.93D0
         ztransition(1,1) = 1.0D0
 
-        temp=brent(func,0.05D0,0.13D0,0.15D0,toll,xmin)
+        temp=brent(func,0.05D0,0.1349D0,0.17D0,toll,xmin)
         call deallocateArrays()
         stop 0
 
@@ -699,8 +703,8 @@ contains
 
         open(unit=1,file=policyOutput)
         write(1,*) a(:)
-        do i=1,n_z
-            do j=1,n_s
+        do j=1,n_s
+            do i=1,n_z
                 write(1,*) g(i,currentCap,j,:)
             end do
         end do
@@ -719,22 +723,27 @@ contains
         REAL(DP)                            :: tempD,tempD2
         REAL(DP), dimension(n_z,n_s,n_a)    :: y2
         REAL(DP)                            :: kr1,kr2,kr3
+        !************
+        ! Timing variables
+        !************
+        real(DP) :: startTime, endTime
 
+        call CPU_TIME(startTime)
         !**************************************************************************
         ! we begin the iteration
         !**************************************************************************
         do iter=1,maxit
-            do i=1,n_z
-                do j=1,n_s
+            do j=1,n_s
+                do i=1,n_z
                     tempD=(v(i,aggK,j,2,1)-v(i,aggK,j,1,1))/(a(2)-a(1))
                     tempD2=(v(i,aggK,j,n_a,1)-v(i,aggK,j,n_a-1,1))/(a(n_a)-a(n_a-1))
                     call spline(a,v(i,aggK,j,:,1),tempD,tempD2,y2(i,j,:))
                 end do
             end do
             call wrapperInit(v(:,aggK,:,:,1),y2)
-            do i=1,n_z
+            do it=1,n_a
                 do j=1,n_s
-                    do it=1,n_a
+                    do i=1,n_z
                         !ensure monotone policy function
                         if(it==1)then
                             kr1=a(1)
@@ -766,8 +775,9 @@ contains
             end do
             call wrapperClean()
             if( (mod(iter,reportNum)==1))then
+                call CPU_TIME(endTime)
                 print *,"r:",rFixed,"w:",wFixed,"iter: ",iter,&
-                    &"diff: ",maxval(abs(v(:,aggK,:,:,2)-v(:,aggK,:,:,1)))
+                    &"diff: ",maxval(abs(v(:,aggK,:,:,2)-v(:,aggK,:,:,1))),"Time: ",endTime-startTime
                 flush(6)
             end if
             if (maxval(abs(v(:,aggK,:,:,2)-v(:,aggK,:,:,1))) .lt. toll) then
@@ -788,13 +798,20 @@ contains
         REAL(DP) :: y
 
         INTEGER(I4B) :: i,j,ii
-        REAL(DP) :: num
+        REAL(DP) :: num, tempD, tempD2
+        REAL(DP), DIMENSION(n_s,n_a) :: y2
         INTEGER(I4B), DIMENSION(periodsForConv+periodsToCut) :: z
         REAL(DP), DIMENSION(periodsForConv+periodsToCut), save :: aggK
         TYPE(household), DIMENSION(numHouseholds) :: hhs
         REAL(DP), DIMENSION(n_s,n_a) :: gint
         LOGICAL, save :: firstTime = .true.
 
+        !************
+        ! Timing variables
+        !************
+        real(DP) :: startTime, endTime
+
+        call CPU_TIME(startTime)
         !first, draw T states for the economy
         num= rand(myseed)
         if(num<0.5D0)then
@@ -813,14 +830,14 @@ contains
         end do
 
         !we now have our series of economic shocks. Now let's set initial distribution
-        if (firstTime) then
+        !if (firstTime) then
         do i=1,numHouseholds,2
             hhs(i)%employmentState=1
             hhs(i)%capital=k(1)
             hhs(i+1)%employmentState=2
             hhs(i+1)%capital=k(1)
         end do
-        end if
+        !end if
 
 
         !calculate aggregate capital
@@ -832,16 +849,23 @@ contains
             if(noshocks)then
                 gint = g(1,1,:,:)
             else
-                do j=1,n_s
-                    do ii=1,n_a
+                do ii=1,n_a
+                    do j=1,n_s
                         gint(j,ii)=linear(g(z(i-1),:,j,ii),k,aggK(i-1))
                     end do
                 end do
             end if
 
             !set this period's employment and capital levels
+            do j=1,n_s
+                tempD=(gint(j,2)-gint(j,1))/(a(2)-a(1))
+                tempD2=(gint(j,n_a)-gint(j,n_a-1))/(a(n_a)-a(n_a-1))
+                call spline(a,gint(j,:),tempD,tempD2,y2(j,:))
+            end do
+
             do j=1,numHouseholds
-                hhs(j)%capital=linear(gint(hhs(j)%employmentState,:),a,hhs(j)%capital)
+                ii = hhs(j)%employmentState
+                hhs(j)%capital=splint(a,gint(ii,:),y2(ii,:),hhs(j)%capital)
                 num=rand(0)
                 hhs(j)%employmentState=1
                 do ii=1,n_s-1
@@ -855,8 +879,9 @@ contains
 
             aggK(i)=sum(hhs(:)%capital)/numHouseholds
 
-            if( (mod(i,500)==0))then
-                print *,"SS: ",i,aggK(i)
+            if( (mod(i,reportNum)==0))then
+                call CPU_TIME(endTime)
+                print *,"SS: ",i,aggK(i),"s:",endTime-startTime
                 flush(6)
             end if
 
@@ -866,7 +891,7 @@ contains
 
         open(unit=2,file=distribOutput)
         do i=1,numHouseholds
-                write(2,*) hhs(i)%capital
+            write(2,*) hhs(i)%capital
         end do
         close(2)
 
@@ -909,7 +934,7 @@ program main
 
     arg1="policy"
     arg2= "distrib"
-    call setParams(d1func, d2func, func2, arg1,arg2 , printEvery, capitalShare,&
+    call setParams(d1func, d2func, func2, arg1,arg2 , capitalShare, whichSet, printEvery,&
         &0.1D0, 1.0D0)
     call CPU_TIME(startTime)
     call beginKrusellSmith()
