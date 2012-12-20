@@ -66,11 +66,17 @@
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1153606118" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release.1233793159" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release">
-								<option id="gnu.fortran.compiler.option.misc.other.80207891" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp" valueType="string"/>
-								<option id="gnu.fortran.compiler.option.warnings.toerrors.51213693" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="true" valueType="boolean"/>
+								<option id="gnu.fortran.compiler.option.misc.other.80207891" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.warnings.toerrors.51213693" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="true" valueType="boolean"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.570762472" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release.615807278" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release">
+								<option id="gnu.fortran.link.option.paths.872473326" superClass="gnu.fortran.link.option.paths" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;C:\Users\arun\SkyDrive\fortranlibs&quot;"/>
+								</option>
+								<option id="gnu.fortran.link.option.libs.1523449336" superClass="gnu.fortran.link.option.libs" valueType="libs">
+									<listOptionValue builtIn="false" value="lapack"/>
+								</option>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.linker.input.638455675" superClass="photran.managedbuild.tool.gnu.fortran.linker.input">
 									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
 									<additionalInput kind="additionalinput" paths="$(LIBS)"/>

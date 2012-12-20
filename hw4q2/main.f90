@@ -393,6 +393,25 @@ contains
                     print *,y2(i,currentAggCapital,j,:)
                     stop 0
                 end if
+
+                if(interpolated(i,j)>10D50)then
+                    print *,"interpolated value in value function is too high"
+                    print *,i,j,x
+                    print *,a
+                    print *,v(i,currentAggCapital,j,:)
+                    print *,y2(i,currentAggCapital,j,:)
+                    stop 0
+                end if
+
+                if(interpolated(i,j)<-10D50)then
+                    print *,"interpolated value in value function is too low"
+                    print *,i,j,x
+                    print *,a
+                    print *,v(i,currentAggCapital,j,:)
+                    print *,y2(i,currentAggCapital,j,:)
+                    stop 0
+                end if
+
             end do
         end do
         rp=0.0D0
@@ -445,10 +464,10 @@ module aiyagariSolve
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
     REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=50.0D0
-    REAL(DP), parameter                   ::  k_min=20D0, k_max = 100.0D0
+    REAL(DP), parameter                   ::  k_min=1.0D0, k_max = 100.0D0
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
-    REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-6
+    REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-5
 
     integer                  ::  n_z   ! The number of aggregate states
     integer                  ::  n_s   ! The number of employment states
@@ -465,7 +484,7 @@ module aiyagariSolve
     REAL(DP), allocatable, dimension(:,:,:,:)  ::  lastStateV
     TYPE(household), dimension(numHouseholds)  ::  ssDistrib
     REAL(DP), DIMENSION(periodsForConv) :: lastKSeq
-    REAL(DP),allocatable,dimension(:,:) :: phi
+    REAL(DP),allocatable,dimension(:,:,:) :: phi
 
 
     integer                       ::  reportNum
@@ -530,7 +549,7 @@ contains
         allocate(lastStateV(n_z,n_k,n_s,n_a))
         allocate(wFixed(n_z,n_k))
         allocate(rFixed(n_z,n_k))
-        allocate(phi(n_z,2))
+        allocate(phi(n_z,2,2))
     end subroutine allocateArrays
 
     subroutine deallocateArrays()
@@ -550,12 +569,15 @@ contains
 
     end subroutine deallocateArrays
 
-    subroutine beginKrusellSmith()
+    subroutine beginKrusellSmith(doSS)
+        LOGICAL :: doSS
         REAL(DP)  ::  incr
-        REAL(DP),dimension(n_z,2) :: vals
-        REAL(DP),dimension(n_z) ::  aggK,aggKp
-
-        INTEGER :: i,j,ii
+        REAL(DP),allocatable,dimension(:,:) :: vals,goodShocks,badShocks
+        REAL(DP),allocatable,dimension(:) ::  aggK,aggKp
+        REAL(DP), dimension(periodsForConv,2):: aggKHistory
+        REAL(DP),dimension(2*periodsForConv*2) :: workArray
+        LOGICAL :: iterComplete
+        INTEGER :: i,j,ii,iter
         REAL(DP) :: temp,xmin
         PROCEDURE(template_function), POINTER :: func
 
@@ -570,54 +592,92 @@ contains
         a=a**curv
         a=a/(a_max-a_min)**(curv-1)+a_min
 
-        !*************************************************************************
-        ! First, solve the steady state version of the model with no aggregate shocks.
-        !*************************************************************************
-        call allocateArrays(1,2,1)
-        s(1)=0.0D0
-        s(2)=1.0D0
-        func => aggregateBondsSetR
-        ! we initialize the value function
-        ! and we set up an initial guess for it
-        v=0D0
-        forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
-        g=0D0
+        if(doSS)then
+            !*************************************************************************
+            ! First, solve the steady state version of the model with no aggregate shocks.
+            !*************************************************************************
+            call allocateArrays(1,2,1)
+            s(1)=0.0D0
+            s(2)=1.0D0
+            func => aggregateBondsSetR
 
-        zShocks(1)=1.0D0
-        ssEmployment(1,1)=0.07D0
-        ssEmployment(1,2)=0.93D0
+            ! we initialize the value function
+            ! and we set up an initial guess for it
+            allocate(vals(n_z,2))
+            allocate(aggK(n_z))
+            allocate(aggKp(n_z))
+            v=0D0
+            forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
+            g=0D0
 
-        !***********************************************************************
-        ! This is not the most efficient, but it is clearer to understand what is happening.
-        ! The matrix is set up as follows:
-        !          A B C D  = A B - current Agg State, current employment state
-        !                     C D - next Agg state, next employment state
-        !          AggState - 1: only one economy
-        !          Employment - 1: unemployed
-        !                       2: employed
-        transition(1,1,1,1) = 0.07D0
-        transition(1,1,1,2) = 0.93D0
-        transition(1,2,1,1) = 0.07D0
-        transition(1,2,1,2) = 0.93D0
-        ztransition(1,1) = 1.0D0
+            zShocks(1)=1.0D0
+            ssEmployment(1,1)=0.07D0
+            ssEmployment(1,2)=0.93D0
 
-        temp=brent(func,0.05D0,0.1349D0,0.17D0,tol2,xmin)
-        call deallocateArrays()
+            !***********************************************************************
+            ! This is not the most efficient, but it is clearer to understand what is happening.
+            ! The matrix is set up as follows:
+            !          A B C D  = A B - current Agg State, current employment state
+            !                     C D - next Agg state, next employment state
+            !          AggState - 1: only one economy
+            !          Employment - 1: unemployed
+            !                       2: employed
+            transition(1,1,1,1) = 0.07D0
+            transition(1,1,1,2) = 0.93D0
+            transition(1,2,1,1) = 0.07D0
+            transition(1,2,1,2) = 0.93D0
+            ztransition(1,1) = 1.0D0
+
+            temp=brent(func,0.05D0,0.13D0,0.20D0,tol2,xmin)
+
+            !*************
+            !Let's print out the ss distrib
+            !*************
+            open(unit=1,file=distribOutput)
+            do i=1,numHouseholds
+                write(1,*) ssDistrib(i)%employmentState
+                write(1,*) ssDistrib(i)%capital
+            end do
+            close(1)
+
+            call deallocateArrays()
+            deallocate(vals)
+            deallocate(aggK)
+            deallocate(aggKp)
+        else
+            open(unit=1,file=distribOutput)
+            do i=1,numHouseholds
+                read(1,*) ssDistrib(i)%employmentState
+                read(1,*) ssDistrib(i)%capital
+            end do
+        end if
 
         !**********************************************************************
         ! Now do proper Krusell-Smith algorithm
         !********************************************************************
 
-        call allocateArrays(2,2,50)
+        call allocateArrays(2,2,100)
+        allocate(vals(n_z,2))
+        allocate(aggK(n_z))
+        allocate(aggKp(n_z))
+
         ! Set aggregate capital grid over which we want to evaluate, K
+        ! curving this allows convergence. Without, it doesn't. Damn I hate splines!
         incr=(k_max-k_min)/(n_k-1)
         k=(/ (    incr*real(i-1,8),i=1,n_k    ) /)
-        k=k+k_min
+        k=k**curv
+        k=k/(k_max-k_min)**(curv-1)+k_min
+
+        ! initialize the value function
+        ! and we set up an initial guess for it
+        v=0D0
+        forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
+        g=0D0
 
         zShocks=(/0.99D0,1.01D0/)
         s(1)=0.0D0
         s(2)=1.0D0
-        ssEmployment=reshape((/0.9D0,0.96D0,0.1D0,0.04D0/),(/2,2/))
+        ssEmployment=reshape((/0.1D0,0.04D0,0.90D0,0.96D0/),(/2,2/))
 
         !***********************************************************************
         ! Now iterate to find stuff.
@@ -649,23 +709,26 @@ contains
         transition(2,2,2,1) = 0.024306D0
         transition(2,2,2,2) = 0.8506941D0
 
-        ztransition(1,1) = transition(1,1,1,1)+transition(1,1,1,2)
-        ztransition(1,2) = 1-ztransition(1,1)
-        ztransition(2,2) = transition(2,2,2,1)+transition(2,2,2,2)
-        ztransition(2,2) = 1-ztransition(2,2)
+        zTransition(1,1) = transition(1,1,1,1)+transition(1,1,1,2)
+        zTransition(1,2) = 1-ztransition(1,1)
+        zTransition(2,2) = transition(2,2,2,1)+transition(2,2,2,2)
+        zTransition(2,2) = 1-ztransition(2,2)
 
         !************************************************************************
         ! initial guess for phi0 and phi1
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
-        phi(:,1)=log(aggK(1))
-        phi(:,2)=0.0D0
-        vals(:,1)=1.0D0
-        vals(:,2)=temp
+        phi(:,1,1)=log(aggK(1))
+        phi(:,2,1)=0.0D0
+        vals(1,:)=1.0D0
+        vals(2,:)=log(aggK(1))
+
         ! given K, find K'
         do i=1,n_z
-            aggKp(i)=dot_product(phi(i,:),vals(:,i))
+            aggKp(i)=dot_product(phi(i,:,1),vals(:,i))
         end do
+
+        print *,"K: ",aggK,"K':",aggKp
 
         do i=1,n_z
             do j=1,n_k
@@ -674,21 +737,90 @@ contains
             end do
         end do
 
-        call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
-        call getAllPolicy()
-        call wrapperDestroy()
+        iter = 0
+        iterComplete=.false.
+        do while ( (iter<maxit) .and. (.not. iterComplete))
+            iter = iter+1
+            call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
+            call getAllPolicy()
+            call wrapperDestroy()
 
-        ! interpolate V0(a,K) on K', keeping assets constant.
-        ! So now we have V0(a,K') for a grid of points, a
+            !*****************************************************
+            ! find the steady state capital
+            !*****************************************************
+            aggKHistory=findSteadyStateCapital(.false.)
 
-        ! use the bellman equation and interpolate on V0(a,K') (over a) to find a'
-        ! and therefore V1(a,K)
+            !****************************************************
+            ! Split the data into two sets, one for good shocks and
+            ! one for bad shocks
+            !****************************************************
+            j=0
+            do i=1,periodsForConv
+                if(aggKHistory(i,1)>1.0D0)then
+                    j=j+1
+                end if
+            end do
 
-        ! Compare V1(a,K) to V0(a,K)
+            allocate(goodShocks(j,3))
+            allocate(badShocks(periodsForConv-j,3))
 
-        deallocate(transition)
-        deallocate(zShocks)
-        deallocate(ssEmployment)
+            j=0
+            ii=0
+            do i=1,periodsForConv
+                if(aggKHistory(i,1)>1.0D0)then
+                    j=j+1
+                    goodShocks(j,1)=1.0D0
+                    if(i==1)then
+                        goodShocks(j,2)=log(aggK(1))
+                    else
+                        goodShocks(j,2)=log(aggKHistory(i-1,2))
+                    end if
+                    goodShocks(j,3)=aggKHistory(i,2)
+                else
+                    ii=ii+1
+                    badShocks(ii,1)=1.0D0
+                    if(i==1)then
+                        badShocks(ii,2)=log(aggK(1))
+                    else
+                        badShocks(ii,2)=log(aggKHistory(i-1,2))
+                    end if
+                    badShocks(ii,3)=aggKHistory(i,2)
+                end if
+            end do
+
+            !**************************************************
+            ! Find phi(0) and phi(1) using OLS
+            !**************************************************
+
+            !First for good shocks
+            j=size(goodShocks,dim=1)
+            call dgels('N', j, 2, 1, goodShocks(:,1:2), j, goodShocks(:,3),j, workArray,size(workArray),i)
+
+            phi(1,1,2)=goodShocks(1,3)
+            phi(1,2,2)=goodShocks(2,3)
+            j=size(badShocks,dim=1)
+            call dgels('N', j, 2, 1, badShocks(:,1:2), j, badShocks(:,3),j, workArray,size(workArray),i)
+            phi(2,1,2)=badShocks(1,3)
+            phi(2,2,2)=badShocks(2,3)
+
+            if( (mod(iter,reportNum)==0))then
+                print *,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
+                flush(6)
+            end if
+
+            if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<toll)then
+                iterComplete = .true.
+            end if
+
+            deallocate(goodShocks)
+            deallocate(badShocks)
+        end do
+        deallocate(vals)
+        deallocate(aggK)
+        deallocate(aggKp)
+        deallocate(goodShocks)
+        deallocate(badShocks)
+
     end subroutine beginKrusellSmith
 
     function aggregateBondsSetR(r) RESULT (z)
@@ -703,20 +835,22 @@ contains
         REAL(DP),dimension(periodsForConv) :: aggK
 
         k(1) = capitalCalc(r,ssEmployment(1,2),zShocks(1))
-        aggK=aggregateBonds(1,.true.)
+        aggK=aggregateBonds(.true.)
         totalCapital=aggK(periodsForConv)
         z=abs(totalCapital-k(1))
+        print *,"Implied Capital: ",k(1),"Actual Capital: ",totalCapital
+        flush(6)
     end function aggregateBondsSetR
 
-    function aggregateBonds(currentCap,noAggShocks) RESULT (aggK)
+    function aggregateBonds(noAggShocks) RESULT (aggK)
         ! inputs: r - the interest rate to test
         !         w - the wages
         !         z - the current aggregate shock level
         !         currentCap - the current aggregate capital level
         ! outputs: aggK - the aggregate level of borrowing
-        INTEGER(I4B), INTENT(IN) :: currentCap
         LOGICAL, INTENT(IN) :: noAggShocks
         REAL(DP),dimension(periodsForConv) :: aggK
+        REAL(DP),dimension(periodsForConv,2) :: aggKtemp
         INTEGER :: i,j
 
         do i=1,n_z
@@ -727,7 +861,6 @@ contains
         end do
 
         call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
-         !       call getPolicyForCapital(currentCap)
         call getAllPolicy(noAggShocks)
         call wrapperDestroy()
 
@@ -735,7 +868,7 @@ contains
         write(1,*) a(:)
         do j=1,n_s
             do i=1,n_z
-                write(1,*) g(i,currentCap,j,:)
+                write(1,*) g(i,1,j,:)
             end do
         end do
         close(1)
@@ -743,7 +876,8 @@ contains
         !*****************************************************
         ! find the steady state capital
         !*****************************************************
-        aggK=findSteadyStateCapital(noAggShocks)
+        aggKTemp=findSteadyStateCapital(noAggShocks)
+        aggK=aggKTemp(:,2)
     end function aggregateBonds
 
     subroutine getAllPolicy(inSS)
@@ -754,7 +888,7 @@ contains
         REAL(DP)                            :: tempD,tempD2
         REAL(DP), dimension(n_z,n_k,n_s,n_a)    :: y2
         REAL(DP)                            :: kr1,kr2,kr3
-        real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY
+        real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY,tempG
         REAL(DP),dimension(n_z,n_k) :: kprime
 
         !************
@@ -769,13 +903,27 @@ contains
             inSS2=.false.
         end if
 
+        if(reportNum<maxit)then
+            if(inSS2)then
+                print *," "
+                print *,"Value Function iteration",rFixed(1,1)
+            else
+                print *," "
+                print *,"Value Function iteration"
+            end if
+            print *,"--------------------------------------"
+            flush(6)
+        end if
+
         !**************************************************************************
         ! we begin the iteration
         !**************************************************************************
         do iter=1,maxit
-
+            tempG=g
+            !$OMP PARALLEL
             if (.not. inSS2)then
                 !Get splines for each a, across all k
+                !$OMP DO PRIVATE(tempD, tempD2)
                 do ii = 1,n_a
                     do j=1,n_s
                         do i=1,n_z
@@ -785,6 +933,7 @@ contains
                         end do
                     end do
                 end do
+                !$OMP END DO NOWAIT
             end if
 
             if(inSS2)then
@@ -792,14 +941,19 @@ contains
                     kprime(i,:)=k
                 end do
             else
+                !$OMP DO
                 do j=1,n_k
                     do i=1,n_z
-                        kprime(i,j)=phi(i,1)+phi(i,2)*log(k(j))
+                        kprime(i,j)=phi(i,1,1)+phi(i,2,1)*log(k(j))
                     end do
                 end do
+                !$OMP END DO NOWAIT
             end if
 
+            !$OMP BARRIER
+
             !interpolate values at K'. This is what we need when we evaluate policy functions
+                !$OMP DO
             do it=1,n_a
                 do j=1,n_s
                     do aggK=1,n_k
@@ -813,10 +967,12 @@ contains
                     end do
                 end do
             end do
+            !$OMP END DO
 
             !now, find a  policy function that is valid across each k'
-            do j=1,n_s
-                do aggK=1,n_k
+            !$OMP DO PRIVATE(tempD, tempD2)
+            do aggK=1,n_k
+                do j=1,n_s
                     do i=1,n_z
                         tempD = (tempV(i,aggK,j,2)-tempV(i,aggK,j,1))/(a(2)-a(1))
                         tempD2 = (tempV(i,aggK,j,n_a)-tempV(i,aggK,j,n_a-1))/(a(n_a)-a(n_a-1))
@@ -824,22 +980,22 @@ contains
                     end do
                 end do
             end do
+            !$OMP END DO
 
             !use this single policy function for each k' (actually one for each future agg state and emloyment
             !level (so really four in basic K-S) for evaluating next period value function
+            !$OMP SINGLE
             call wrapperInit(tempV,tempY)
+            !$OMP END SINGLE
 
             !find next period's policy function
             do it=1,n_a
-                do j=1,n_s
-                    do aggK = 1,n_k
+                !$OMP DO
+                do aggK = 1,n_k
+                    do j=1,n_s
                         do i=1,n_z
                             !ensure monotone policy function
-                            if(it==1)then
-                                kr1=a(1)
-                            else
-                                kr1=g(i,aggK,j,it-1)
-                            end if
+                            kr1=a(1)
                             kr3=min(a(it)*(1+rFixed(i,aggK)-delta)+s(j)*wFixed(i,aggK),a(n_a))
                             kr2=(kr1+kr3)/2D0
                             v(i,aggK,j,it,2)=-callBrent(i,aggK,j,it,funcParam,kr1,kr2,kr3,toll,g(i,aggK,j,it))
@@ -863,10 +1019,12 @@ contains
                         end do
                     end do
                 end do
+                !$OMP END DO
             end do
 
+            !$OMP END PARALLEL
             call wrapperClean()
-            if( (mod(iter,reportNum)==1))then
+            if( (mod(iter,reportNum)==0))then
                 call CPU_TIME(endTime)
                 print *,iter,maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1))),endTime-startTime
                 flush(6)
@@ -882,12 +1040,17 @@ contains
 
             v(:,:,:,:,1)=v(:,:,:,:,2)
         end do
+
+        if(reportNum<maxit)then
+            print *," "
+        end if
+
         lastStateV(:,:,:,:) = v(:,:,:,:,2)
     end subroutine  getAllPolicy
 
     FUNCTION findSteadyStateCapital(noShocks) RESULT(y)
         LOGICAL, INTENT(IN) :: noShocks
-        REAL(DP), dimension(periodsForConv) :: y
+        REAL(DP), dimension(periodsForConv,2) :: y
 
         INTEGER(I4B) :: i,j,ii
         REAL(DP) :: num, tempD, tempD2
@@ -913,11 +1076,14 @@ contains
 
         do i=2,periodsForConv+periodsToCut
             num=rand(0)
-            if(num<zTransition(z(i-1),1))then
-                z(i)=z(i-1)
-            else
-                z(i)=mod(z(i-1)+1,2)
-            end if
+            z(i)=1
+            do j=1,n_z-1
+                if(num>sum(zTransition(z(i-1),1:j)))then
+                    z(i)=j+1
+                else
+                    exit
+                end if
+            end do
         end do
 
         !we now have our series of economic shocks. Now let's set initial distribution
@@ -968,7 +1134,7 @@ contains
                 num=rand(0)
                 hhs(j)%employmentState=1
                 do ii=1,n_s-1
-                    if(num>transition(z(i-1),hhs(j)%employmentState,z(i),ii))then
+                    if(num>sum(transition(z(i-1),hhs(j)%employmentState,z(i),1:ii)))then
                         hhs(j)%employmentState=ii+1
                     else
                         exit
@@ -988,14 +1154,8 @@ contains
         if(noShocks)then
             ssDistrib=hhs
         end if
-        y=aggK(periodsToCut+1:periodsForConv+periodsToCut)
-
-        open(unit=2,file=distribOutput)
-        do i=1,numHouseholds
-            write(2,*) hhs(i)%capital
-        end do
-        close(2)
-
+        y(:,1)=z(periodsToCut+1:periodsForConv+periodsToCut)
+        y(:,2)=aggK(periodsToCut+1:periodsForConv+periodsToCut)
     end function findSteadyStateCapital
 
 end module aiyagariSolve
@@ -1012,13 +1172,16 @@ program main
     PROCEDURE(template_function), POINTER :: func
     PROCEDURE(template_function2), POINTER :: d1func, d2func
     PROCEDURE(template_function3), POINTER :: func2
-    INTEGER :: temp2,printEvery=500,whichSet=3
+    INTEGER :: temp,temp2,printEvery=500,whichSet=3
     character(LEN=15) :: arg1,arg2
+    logical :: readFromFile
+
     !************
     ! Timing variables
     !************
     real(DP) :: startTime, endTime
 
+    readFromFile=.false.
     temp2=COMMAND_ARGUMENT_COUNT()
     if(temp2 > 0)then
         call GET_COMMAND_ARGUMENT(1, arg1, whichSet)
@@ -1027,6 +1190,10 @@ program main
     if(temp2 > 1)then
         call GET_COMMAND_ARGUMENT(2, arg1, printEvery)
         read (arg1,*) printEvery
+    end if
+    if(temp2 > 2)then
+        call GET_COMMAND_ARGUMENT(3, arg1, temp)
+        read (arg1,*) readFromFile
     end if
 
     d1func => d1prod
@@ -1037,7 +1204,7 @@ program main
     arg2= "distrib"
     call setParams(d1func, d2func, func2, arg1,arg2 , capitalShare, whichSet, printEvery)
     call CPU_TIME(startTime)
-    call beginKrusellSmith()
+    call beginKrusellSmith(.not. readFromFile)
     call CPU_TIME(endTime)
     print *,"a             ",xmin, intDiff, endTime-startTime
     flush(6)
