@@ -468,6 +468,7 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
     REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-5
+    REAL(DP),parameter                    ::  lambda = 0.05 ! how much confidence in new value
 
     integer                  ::  n_z   ! The number of aggregate states
     integer                  ::  n_s   ! The number of employment states
@@ -668,12 +669,6 @@ contains
         k=k**curv
         k=k/(k_max-k_min)**(curv-1)+k_min
 
-        ! initialize the value function
-        ! and we set up an initial guess for it
-        v=0D0
-        forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
-        g=0D0
-
         zShocks=(/0.99D0,1.01D0/)
         s(1)=0.0D0
         s(2)=1.0D0
@@ -712,14 +707,19 @@ contains
         zTransition(1,1) = transition(1,1,1,1)+transition(1,1,1,2)
         zTransition(1,2) = 1-ztransition(1,1)
         zTransition(2,2) = transition(2,2,2,1)+transition(2,2,2,2)
-        zTransition(2,2) = 1-ztransition(2,2)
+        zTransition(2,1) = 1-ztransition(2,2)
 
         !************************************************************************
         ! initial guess for phi0 and phi1
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
+        !cheating, using pre-calculated values
+        phi(1,1,1)=-4.2277203693441399D0
+        phi(1,2,1)=5.8507825884171023D0
+        phi(2,1,1)=-3.8706011072631870D0
+        phi(2,2,1)=5.4804841152827120D0
         phi(:,1,1)=log(aggK(1))
-        phi(:,2,1)=0.0D0
+        phi(:,2,1)=0.1D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -727,8 +727,6 @@ contains
         do i=1,n_z
             aggKp(i)=dot_product(phi(i,:,1),vals(:,i))
         end do
-
-        print *,"K: ",aggK,"K':",aggKp
 
         do i=1,n_z
             do j=1,n_k
@@ -741,6 +739,15 @@ contains
         iterComplete=.false.
         do while ( (iter<maxit) .and. (.not. iterComplete))
             iter = iter+1
+
+            ! initialize the value function
+            ! and we set up an initial guess for it
+            ! do this each time, since previous value functions are probably
+            ! garbage
+            v=0D0
+            forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
+            g=0D0
+
             call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
             call getAllPolicy()
             call wrapperDestroy()
@@ -755,7 +762,10 @@ contains
             ! one for bad shocks
             !****************************************************
             j=0
+            print *,"AggK"
             do i=1,periodsForConv
+                print *,aggKHistory(i,:)
+                flush(6)
                 if(aggKHistory(i,1)>1.0D0)then
                     j=j+1
                 end if
@@ -803,14 +813,22 @@ contains
             phi(2,1,2)=badShocks(1,3)
             phi(2,2,2)=badShocks(2,3)
 
-            if( (mod(iter,reportNum)==0))then
-                print *,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
+            if( (mod(iter,1)==0))then
+                print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
+                print *,"OLD:"
+                print *,"1:",phi(1,:,1)
+                print *,"2:",phi(2,:,1)
+                print *,"NEW:"
+                print *,"1:",phi(1,:,2)
+                print *,"2:",phi(2,:,2)
                 flush(6)
             end if
 
             if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<toll)then
                 iterComplete = .true.
             end if
+
+            phi(:,:,1)=lambda*phi(:,:,2)+(1.0D0-lambda)*phi(:,:,1)
 
             deallocate(goodShocks)
             deallocate(badShocks)
@@ -915,6 +933,21 @@ contains
             flush(6)
         end if
 
+        if(inSS2)then
+            do i=1,n_z
+                kprime(i,:)=k
+            end do
+        else
+            do j=1,n_k
+                do i=1,n_z
+                    kprime(i,j)=max(k(1),phi(i,1,1)+phi(i,2,1)*log(k(j)))
+                    kprime(i,j)=min(k(n_k),kprime(i,j))
+                    print *,i,j,k(j),kprime(i,j)
+                    flush(6)
+                end do
+            end do
+        end if
+
         !**************************************************************************
         ! we begin the iteration
         !**************************************************************************
@@ -936,19 +969,6 @@ contains
                 !$OMP END DO NOWAIT
             end if
 
-            if(inSS2)then
-                do i=1,n_z
-                    kprime(i,:)=k
-                end do
-            else
-                !$OMP DO
-                do j=1,n_k
-                    do i=1,n_z
-                        kprime(i,j)=phi(i,1,1)+phi(i,2,1)*log(k(j))
-                    end do
-                end do
-                !$OMP END DO NOWAIT
-            end if
 
             !$OMP BARRIER
 
@@ -989,10 +1009,10 @@ contains
             !$OMP END SINGLE
 
             !find next period's policy function
-            do it=1,n_a
                 !$OMP DO
-                do aggK = 1,n_k
+            do it=1,n_a
                     do j=1,n_s
+                do aggK = 1,n_k
                         do i=1,n_z
                             !ensure monotone policy function
                             kr1=a(1)
@@ -1019,8 +1039,8 @@ contains
                         end do
                     end do
                 end do
-                !$OMP END DO
             end do
+                !$OMP END DO
 
             !$OMP END PARALLEL
             call wrapperClean()
@@ -1076,6 +1096,7 @@ contains
 
         do i=2,periodsForConv+periodsToCut
             num=rand(0)
+            flush(6)
             z(i)=1
             do j=1,n_z-1
                 if(num>sum(zTransition(z(i-1),1:j)))then
