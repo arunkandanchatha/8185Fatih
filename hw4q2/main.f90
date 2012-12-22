@@ -464,7 +464,7 @@ module aiyagariSolve
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
     REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=50.0D0
-    REAL(DP), parameter                   ::  k_min=1.0D0, k_max = 100.0D0
+    REAL(DP), parameter                   ::  k_min=2.0D0, k_max = 100.0D0
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
     REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-5
@@ -572,14 +572,14 @@ contains
 
     subroutine beginKrusellSmith(doSS)
         LOGICAL :: doSS
-        REAL(DP)  ::  incr
+        REAL(DP)  ::  incr, ssErr, ssTot, predicted
         REAL(DP),allocatable,dimension(:,:) :: vals,goodShocks,badShocks
         REAL(DP),allocatable,dimension(:) ::  aggK,aggKp
         REAL(DP), dimension(periodsForConv,2):: aggKHistory
         REAL(DP),dimension(2*periodsForConv*2) :: workArray
         LOGICAL :: iterComplete
-        INTEGER :: i,j,ii,iter
-        REAL(DP) :: temp,xmin
+        INTEGER :: i,j,ii,iter, whichState
+        REAL(DP) :: temp,xmin, avgK
         PROCEDURE(template_function), POINTER :: func
 
         funcParam => valueFunction
@@ -714,12 +714,12 @@ contains
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values
-        phi(1,1,1)=-4.2277203693441399D0
-        phi(1,2,1)=5.8507825884171023D0
-        phi(2,1,1)=-3.8706011072631870D0
-        phi(2,2,1)=5.4804841152827120D0
-        phi(:,1,1)=log(aggK(1))
-        phi(:,2,1)=0.1D0
+        phi(1,1,1)=-4.2334927525452501D0
+        phi(1,2,1)=5.8530376066132357D0
+        phi(2,1,1)=-3.8721196879262747D0
+        phi(2,2,1)=5.4813722863509664D0
+        !phi(:,1,1)=log(aggK(1))
+        !phi(:,2,1)=0.1D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -824,7 +824,7 @@ contains
                 flush(6)
             end if
 
-            if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<toll)then
+            if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<1D0-5)then
                 iterComplete = .true.
             end if
 
@@ -833,6 +833,22 @@ contains
             deallocate(goodShocks)
             deallocate(badShocks)
         end do
+
+        ssErr=0.0D0
+        ssTot=0.0D0
+        avgK = sum(aggKHistory(:,2))/periodsForConv
+        do i=1,periodsForConv
+            ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
+            whichState=floor(aggKHistory(i,1))
+            if(i==1)then
+                predicted = phi(1,1,whichState)+phi(1,2,whichState)*log(aggK(1))
+            else
+                predicted = phi(1,1,whichState)+phi(1,2,whichState)*log(aggKHistory(i-1,2))
+            end if
+            ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
+        end do
+
+        print *,"R-squared: ",1.0D0-ssErr/ssTot
         deallocate(vals)
         deallocate(aggK)
         deallocate(aggKp)
@@ -908,6 +924,7 @@ contains
         REAL(DP)                            :: kr1,kr2,kr3
         real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY,tempG
         REAL(DP),dimension(n_z,n_k) :: kprime
+        LOGICAL :: exitLoop
 
         !************
         ! Timing variables
@@ -951,12 +968,16 @@ contains
         !**************************************************************************
         ! we begin the iteration
         !**************************************************************************
+        exitLoop = .false.
         do iter=1,maxit
             tempG=g
+            if(exitLoop)then
+                exit
+            end if
             !$OMP PARALLEL
             if (.not. inSS2)then
                 !Get splines for each a, across all k
-                !$OMP DO PRIVATE(tempD, tempD2)
+                !$OMP DO PRIVATE(tempD, tempD2, j, i)
                 do ii = 1,n_a
                     do j=1,n_s
                         do i=1,n_z
@@ -970,10 +991,10 @@ contains
             end if
 
 
-            !$OMP BARRIER
+            !$OMP FLUSH (y2)
 
             !interpolate values at K'. This is what we need when we evaluate policy functions
-                !$OMP DO
+            !$OMP DO PRIVATE(j,aggK,i)
             do it=1,n_a
                 do j=1,n_s
                     do aggK=1,n_k
@@ -989,8 +1010,10 @@ contains
             end do
             !$OMP END DO
 
+            !$OMP FLUSH (tempV)
+
             !now, find a  policy function that is valid across each k'
-            !$OMP DO PRIVATE(tempD, tempD2)
+            !$OMP DO PRIVATE(tempD, tempD2, j, i)
             do aggK=1,n_k
                 do j=1,n_s
                     do i=1,n_z
@@ -1002,6 +1025,8 @@ contains
             end do
             !$OMP END DO
 
+            !$OMP FLUSH (tempY)
+
             !use this single policy function for each k' (actually one for each future agg state and emloyment
             !level (so really four in basic K-S) for evaluating next period value function
             !$OMP SINGLE
@@ -1009,12 +1034,11 @@ contains
             !$OMP END SINGLE
 
             !find next period's policy function
-                !$OMP DO
+            !$OMP DO PRIVATE(kr1, kr2, kr3, j, aggK, i)
             do it=1,n_a
-                    do j=1,n_s
-                do aggK = 1,n_k
+                do j=1,n_s
+                    do aggK = 1,n_k
                         do i=1,n_z
-                            !ensure monotone policy function
                             kr1=a(1)
                             kr3=min(a(it)*(1+rFixed(i,aggK)-delta)+s(j)*wFixed(i,aggK),a(n_a))
                             kr2=(kr1+kr3)/2D0
@@ -1035,14 +1059,15 @@ contains
                                 flush(6)
                                 stop 0
                             end if
-
                         end do
                     end do
                 end do
             end do
-                !$OMP END DO
+            !$OMP END DO
 
             !$OMP END PARALLEL
+
+            !!$OMP SINGLE
             call wrapperClean()
             if( (mod(iter,reportNum)==0))then
                 call CPU_TIME(endTime)
@@ -1055,8 +1080,11 @@ contains
                 print*,"done: ",iter
                 flush(6)
 #endif
-                exit
+                exitLoop = .true.
             end if
+            !!$OMP END SINGLE
+
+            !!$OMP END PARALLEL
 
             v(:,:,:,:,1)=v(:,:,:,:,2)
         end do
