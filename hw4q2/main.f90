@@ -61,6 +61,7 @@ contains
         a=(xa(khi)-x)/h
         b=(x-xa(klo))/h
         splint=a*ya(klo)+b*ya(khi)+((a**3-a)*y2a(klo)+(b**3-b)*y2a(khi))*(h**2)/6.0_dp
+
     END FUNCTION splint
 
     FUNCTION locate(xx,x)
@@ -716,12 +717,12 @@ contains
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values
-        phi(1,1,1)=-4.2337319972451386D0
-        phi(1,2,1)=5.8531520401416239D0
-        phi(2,1,1)=-3.87237414492239927D0
-        phi(2,2,1)=5.4815090493002243D0
-        !phi(:,1,1)=log(aggK(1))
-        !phi(:,2,1)=0.1D0
+        !phi(1,1,1)=-4.2337319972451386D0
+        !phi(1,2,1)=5.8531520401416239D0
+        !phi(2,1,1)=-3.87237414492239927D0
+        !phi(2,2,1)=5.4815090493002243D0
+        phi(:,1,1)=log(aggK(1))
+        phi(:,2,1)=0.1D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -1124,7 +1125,7 @@ contains
         call CPU_TIME(startTime)
         !first, draw T states for the economy
         num= rand(myseed)
-            z(1)=1
+        z(1)=1
 
         do i=2,periodsForConv+periodsToCut
             num(1)=rand(0)
@@ -1193,7 +1194,7 @@ contains
                 num(j)=rand(0)
             end do
 
-            do j=rank,numHouseholds,mysize
+            do j=rank+1,numHouseholds,mysize
                 ii = hhs(j)%employmentState
                 tempArray(j)=splint(a,gint(ii,:),y2(ii,:),hhs(j)%capital)
                 tempEmp(j)=1
@@ -1224,6 +1225,8 @@ contains
             end if
 
         end do
+        print *,"Here7"
+        flush(6)
         if(noShocks)then
             ssDistrib=hhs
         end if
