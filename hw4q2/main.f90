@@ -1225,8 +1225,6 @@ contains
             end if
 
         end do
-        print *,"Here7"
-        flush(6)
         if(noShocks)then
             ssDistrib=hhs
         end if
