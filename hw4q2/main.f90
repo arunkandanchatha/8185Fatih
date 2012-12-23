@@ -870,13 +870,24 @@ contains
         REAL(DP) :: z
         REAL(DP):: totalCapital
         REAL(DP),dimension(periodsForConv) :: aggK
+        !************
+        ! MPI vars
+        !************
+        INTEGER rank, ierr, mysize
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+        CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
+
 
         k(1) = capitalCalc(r,ssEmployment(1,2),zShocks(1))
         aggK=aggregateBonds(.true.)
         totalCapital=aggK(periodsForConv)
         z=abs(totalCapital-k(1))
-        print *,"Implied Capital: ",k(1),"Actual Capital: ",totalCapital
-        flush(6)
+
+        if(rank == 0)then
+            print *,"Implied Capital: ",k(1),"Actual Capital: ",totalCapital
+            flush(6)
+        end if
     end function aggregateBondsSetR
 
     function aggregateBonds(noAggShocks) RESULT (aggK)
@@ -889,6 +900,13 @@ contains
         REAL(DP),dimension(periodsForConv) :: aggK
         REAL(DP),dimension(periodsForConv,2) :: aggKtemp
         INTEGER :: i,j
+        !************
+        ! MPI vars
+        !************
+        INTEGER rank, ierr, mysize
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+        CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
         do i=1,n_z
             do j=1,n_k
@@ -901,14 +919,16 @@ contains
         call getAllPolicy(noAggShocks)
         call wrapperDestroy()
 
-        open(unit=1,file=policyOutput)
-        write(1,*) a(:)
-        do j=1,n_s
-            do i=1,n_z
-                write(1,*) g(i,1,j,:)
+        if(rank == 0)then
+            open(unit=1,file=policyOutput)
+            write(1,*) a(:)
+            do j=1,n_s
+                do i=1,n_z
+                    write(1,*) g(i,1,j,:)
+                end do
             end do
-        end do
-        close(1)
+            close(1)
+        end if
 
         !*****************************************************
         ! find the steady state capital
@@ -973,8 +993,10 @@ contains
                 do i=1,n_z
                     kprime(i,j)=max(k(1),phi(i,1,1)+phi(i,2,1)*log(k(j)))
                     kprime(i,j)=min(k(n_k),kprime(i,j))
-                    print *,i,j,k(j),kprime(i,j)
-                    flush(6)
+                    if(rank==0)then
+                        print *,i,j,k(j),kprime(i,j)
+                        flush(6)
+                    end if
                 end do
             end do
         end if
@@ -1087,8 +1109,10 @@ contains
             v(:,:,:,:,1)=v(:,:,:,:,2)
         end do
 
-        if(reportNum<maxit)then
-            print *," "
+        if(rank == 0)then
+            if(reportNum<maxit)then
+                print *," "
+            end if
         end if
 
         lastStateV(:,:,:,:) = v(:,:,:,:,1)
@@ -1223,7 +1247,6 @@ contains
                 print *,i,aggK(i),endTime-startTime
                 flush(6)
             end if
-
         end do
         if(noShocks)then
             ssDistrib=hhs
