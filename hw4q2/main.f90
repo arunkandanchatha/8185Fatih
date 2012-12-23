@@ -450,6 +450,8 @@ module aiyagariSolve
     USE brentWrapper
     implicit none
 
+    INCLUDE 'mpif.h'
+
     REAL(DP), parameter                   ::  sigma=.4D0
     integer, parameter                  ::  n_a=301
     integer                             :: myseed = 4567
@@ -714,10 +716,10 @@ contains
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values
-        phi(1,1,1)=-4.2334927525452501D0
-        phi(1,2,1)=5.8530376066132357D0
-        phi(2,1,1)=-3.8721196879262747D0
-        phi(2,2,1)=5.4813722863509664D0
+        phi(1,1,1)=-4.2337319972451386D0
+        phi(1,2,1)=5.8531520401416239D0
+        phi(2,1,1)=-3.87237414492239927D0
+        phi(2,2,1)=5.4815090493002243D0
         !phi(:,1,1)=log(aggK(1))
         !phi(:,2,1)=0.1D0
         vals(1,:)=1.0D0
@@ -922,32 +924,43 @@ contains
         REAL(DP)                            :: tempD,tempD2
         REAL(DP), dimension(n_z,n_k,n_s,n_a)    :: y2
         REAL(DP)                            :: kr1,kr2,kr3
-        real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY,tempG
+        real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY,tempG, tempV2
         REAL(DP),dimension(n_z,n_k) :: kprime
         LOGICAL :: exitLoop
+
+        !************
+        ! MPI vars
+        !************
+        INTEGER rank, ierr, mysize
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
 
         !************
         ! Timing variables
         !************
         real(DP) :: startTime, endTime
 
-        call CPU_TIME(startTime)
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+        CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
+
         if(present(inSS))then
             inSS2=inSS
         else
             inSS2=.false.
         end if
 
-        if(reportNum<maxit)then
-            if(inSS2)then
-                print *," "
-                print *,"Value Function iteration",rFixed(1,1)
-            else
-                print *," "
-                print *,"Value Function iteration"
+        if(rank==0)then
+            call CPU_TIME(startTime)
+            if(reportNum<maxit)then
+                if(inSS2)then
+                    print *," "
+                    print *,"Value Function iteration",rFixed(1,1)
+                else
+                    print *," "
+                    print *,"Value Function iteration"
+                end if
+                print *,"--------------------------------------"
+                flush(6)
             end if
-            print *,"--------------------------------------"
-            flush(6)
         end if
 
         if(inSS2)then
@@ -970,14 +983,12 @@ contains
         !**************************************************************************
         exitLoop = .false.
         do iter=1,maxit
-            tempG=g
             if(exitLoop)then
                 exit
             end if
-            !$OMP PARALLEL
+
             if (.not. inSS2)then
                 !Get splines for each a, across all k
-                !$OMP DO PRIVATE(tempD, tempD2, j, i)
                 do ii = 1,n_a
                     do j=1,n_s
                         do i=1,n_z
@@ -987,14 +998,9 @@ contains
                         end do
                     end do
                 end do
-                !$OMP END DO NOWAIT
             end if
 
-
-            !$OMP FLUSH (y2)
-
             !interpolate values at K'. This is what we need when we evaluate policy functions
-            !$OMP DO PRIVATE(j,aggK,i)
             do it=1,n_a
                 do j=1,n_s
                     do aggK=1,n_k
@@ -1008,12 +1014,8 @@ contains
                     end do
                 end do
             end do
-            !$OMP END DO
-
-            !$OMP FLUSH (tempV)
 
             !now, find a  policy function that is valid across each k'
-            !$OMP DO PRIVATE(tempD, tempD2, j, i)
             do aggK=1,n_k
                 do j=1,n_s
                     do i=1,n_z
@@ -1023,38 +1025,34 @@ contains
                     end do
                 end do
             end do
-            !$OMP END DO
-
-            !$OMP FLUSH (tempY)
 
             !use this single policy function for each k' (actually one for each future agg state and emloyment
             !level (so really four in basic K-S) for evaluating next period value function
-            !$OMP SINGLE
             call wrapperInit(tempV,tempY)
-            !$OMP END SINGLE
 
+            tempG=0
+            tempV2=0
             !find next period's policy function
-            !$OMP DO PRIVATE(kr1, kr2, kr3, j, aggK, i)
-            do it=1,n_a
+            do it=rank+1,n_a,mysize
                 do j=1,n_s
                     do aggK = 1,n_k
                         do i=1,n_z
                             kr1=a(1)
                             kr3=min(a(it)*(1+rFixed(i,aggK)-delta)+s(j)*wFixed(i,aggK),a(n_a))
                             kr2=(kr1+kr3)/2D0
-                            v(i,aggK,j,it,2)=-callBrent(i,aggK,j,it,funcParam,kr1,kr2,kr3,toll,g(i,aggK,j,it))
-                            if(isNAN(v(i,aggK,j,it,2)))then
+                            tempV2(i,aggK,j,it)=-callBrent(i,aggK,j,it,funcParam,kr1,kr2,kr3,toll,tempG(i,aggK,j,it))
+                            if(isNAN(tempV2(i,aggK,j,it)))then
                                 print *,"error, value function is nan"
                                 print *,i,j,it
                                 print *,kr1,kr2,kr3
                                 flush(6)
                                 stop 0
                             end if
-                            if(v(i,aggK,j,it,2)<-10D50)then
+                            if(tempV2(i,aggK,j,it)<-10D50)then
                                 print *,"error, value function is too low"
                                 print *,i,j,it
                                 print *,kr1,kr2,kr3
-                                print *,v(i,aggK,j,it,1),v(i,aggK,j,it,2)
+                                print *,v(i,aggK,j,it,1),tempV2(i,aggK,j,it)
                                 print *,s(j)
                                 flush(6)
                                 stop 0
@@ -1063,16 +1061,19 @@ contains
                     end do
                 end do
             end do
-            !$OMP END DO
 
-            !$OMP END PARALLEL
+            call MPI_BARRIER(MPI_COMM_WORLD,ierr)
 
-            !!$OMP SINGLE
+            call MPI_ALLREDUCE(tempV2,v(:,:,:,:,2),n_s*n_k*n_z*n_a,MPI_REAL8,MPI_SUM,MPI_COMM_WORLD,ierr)
+            call MPI_ALLREDUCE(tempG,g,n_s*n_k*n_z*n_a,MPI_REAL8,MPI_SUM,MPI_COMM_WORLD,ierr)
+
             call wrapperClean()
-            if( (mod(iter,reportNum)==0))then
-                call CPU_TIME(endTime)
-                print *,iter,maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1))),endTime-startTime
-                flush(6)
+            if(rank == 0)then
+                if( (mod(iter,reportNum)==0))then
+                    call CPU_TIME(endTime)
+                    print *,iter,maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1))),endTime-startTime
+                    flush(6)
+                end if
             end if
 
             if (maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1))) .lt. toll) then
@@ -1082,10 +1083,6 @@ contains
 #endif
                 exitLoop = .true.
             end if
-            !!$OMP END SINGLE
-
-            !!$OMP END PARALLEL
-
             v(:,:,:,:,1)=v(:,:,:,:,2)
         end do
 
@@ -1093,41 +1090,48 @@ contains
             print *," "
         end if
 
-        lastStateV(:,:,:,:) = v(:,:,:,:,2)
+        lastStateV(:,:,:,:) = v(:,:,:,:,1)
     end subroutine  getAllPolicy
 
     FUNCTION findSteadyStateCapital(noShocks) RESULT(y)
         LOGICAL, INTENT(IN) :: noShocks
         REAL(DP), dimension(periodsForConv,2) :: y
 
-        INTEGER(I4B) :: i,j,ii
-        REAL(DP) :: num, tempD, tempD2
+        INTEGER(I4B) :: i,j,ii,jj
+        REAL(DP) :: tempD, tempD2
         REAL(DP), DIMENSION(n_s,n_a) :: y2
         INTEGER(I4B), DIMENSION(periodsForConv+periodsToCut) :: z
         REAL(DP), DIMENSION(periodsForConv+periodsToCut) :: aggK
         TYPE(household), DIMENSION(numHouseholds) :: hhs
-        REAL(DP), DIMENSION(n_s,n_a) :: gint
+        REAL(DP), DIMENSION(n_s,n_a) :: gint,tempInt
+        REAL(DP),DIMENSION(numHouseholds) :: tempArray,tempArray2,num
+        INTEGER, DIMENSION(numHouseholds) :: tempEmp,tempEmp2
+
+        !************
+        ! MPI vars
+        !************
+        INTEGER rank, ierr, mysize
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
 
         !************
         ! Timing variables
         !************
         real(DP) :: startTime, endTime
 
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+        CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
+
         call CPU_TIME(startTime)
         !first, draw T states for the economy
         num= rand(myseed)
-        if(num<0.5D0)then
             z(1)=1
-        else
-            z(1)=2
-        end if
 
         do i=2,periodsForConv+periodsToCut
-            num=rand(0)
+            num(1)=rand(0)
             flush(6)
             z(i)=1
             do j=1,n_z-1
-                if(num>sum(zTransition(z(i-1),1:j)))then
+                if(num(1)>sum(zTransition(z(i-1),1:j)))then
                     z(i)=j+1
                 else
                     exit
@@ -1144,14 +1148,14 @@ contains
                 hhs(i+1)%capital=k(1)
             end do
         else
-            hhs=ssDistrib
+            hhs(:)=ssDistrib
         end if
 
         !calculate aggregate capital
         aggK(1) = sum(hhs(:)%capital)/numHouseholds
 
         !now let's update
-        if(reportNum<maxit)then
+        if((reportNum<maxit).and.(rank == 0))then
             print *, "SS"
             print *,"------------------------"
             print *,"      iter      Capital                  Time"
@@ -1163,11 +1167,15 @@ contains
             if(noshocks)then
                 gint = g(1,1,:,:)
             else
-                do ii=1,n_a
+                gint=0
+                tempInt=0
+                do ii=rank+1,n_a,mysize
                     do j=1,n_s
-                        gint(j,ii)=linear(g(z(i-1),:,j,ii),k,aggK(i-1))
+                        tempInt(j,ii)=linear(g(z(i-1),:,j,ii),k,aggK(i-1))
                     end do
                 end do
+                call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+                call MPI_ALLREDUCE(tempInt,gInt,n_s*n_a,MPI_REAL8,MPI_SUM,MPI_COMM_WORLD,ierr)
             end if
 
             !set this period's employment and capital levels
@@ -1177,23 +1185,39 @@ contains
                 call spline(a,gint(j,:),tempD,tempD2,y2(j,:))
             end do
 
+            tempArray=0
+            tempEmp=0
+            tempArray2=0
+            tempEmp2=0
             do j=1,numHouseholds
+                num(j)=rand(0)
+            end do
+
+            do j=rank,numHouseholds,mysize
                 ii = hhs(j)%employmentState
-                hhs(j)%capital=splint(a,gint(ii,:),y2(ii,:),hhs(j)%capital)
-                num=rand(0)
-                hhs(j)%employmentState=1
-                do ii=1,n_s-1
-                    if(num>sum(transition(z(i-1),hhs(j)%employmentState,z(i),1:ii)))then
-                        hhs(j)%employmentState=ii+1
+                tempArray(j)=splint(a,gint(ii,:),y2(ii,:),hhs(j)%capital)
+                tempEmp(j)=1
+                do jj=1,n_s-1
+                    if(num(j)>sum(transition(z(i-1),ii,z(i),1:jj)))then
+                        tempEmp(j)=jj+1
                     else
                         exit
                     end if
                 end do
             end do
+            call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+
+            call MPI_ALLREDUCE(tempEmp,tempEmp2,numHouseholds,MPI_INTEGER,MPI_SUM,MPI_COMM_WORLD,ierr)
+            call MPI_ALLREDUCE(tempArray,tempArray2,numHouseholds,MPI_REAL8,MPI_SUM,MPI_COMM_WORLD,ierr)
+
+            do j=1,numHouseholds
+                hhs(j)%capital=tempArray2(j)
+                hhs(j)%employmentState=tempEmp2(j)
+            end do
 
             aggK(i)=sum(hhs(:)%capital)/numHouseholds
 
-            if( (mod(i,reportNum)==0))then
+            if( (mod(i,reportNum)==0) .and. (rank ==0))then
                 call CPU_TIME(endTime)
                 print *,i,aggK(i),endTime-startTime
                 flush(6)
@@ -1221,7 +1245,7 @@ program main
     PROCEDURE(template_function), POINTER :: func
     PROCEDURE(template_function2), POINTER :: d1func, d2func
     PROCEDURE(template_function3), POINTER :: func2
-    INTEGER :: temp,temp2,printEvery=500,whichSet=3
+    INTEGER :: temp,temp2,printEvery=500,whichSet=3,ierr
     character(LEN=15) :: arg1,arg2
     logical :: readFromFile
 
@@ -1253,7 +1277,9 @@ program main
     arg2= "distrib"
     call setParams(d1func, d2func, func2, arg1,arg2 , capitalShare, whichSet, printEvery)
     call CPU_TIME(startTime)
+    CALL MPI_INIT(ierr)
     call beginKrusellSmith(.not. readFromFile)
+    CALL MPI_FINALIZE(ierr)
     call CPU_TIME(endTime)
     print *,"a             ",xmin, intDiff, endTime-startTime
     flush(6)
