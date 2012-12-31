@@ -584,6 +584,13 @@ contains
         INTEGER :: i,j,ii,iter, whichState
         REAL(DP) :: temp,xmin, avgK
         PROCEDURE(template_function), POINTER :: func
+        !************
+        ! MPI vars
+        !************
+        INTEGER rank, ierr, mysize
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+        CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+        CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
         funcParam => valueFunction
 
@@ -728,7 +735,7 @@ contains
 
         ! given K, find K'
         do i=1,n_z
-            aggKp(i)=dot_product(phi(i,:,1),vals(:,i))
+            aggKp(i)=exp(dot_product(phi(i,:,1),vals(:,i)))
         end do
 
         do i=1,n_z
@@ -816,7 +823,7 @@ contains
             phi(2,1,2)=badShocks(1,3)
             phi(2,2,2)=badShocks(2,3)
 
-            if( (mod(iter,1)==0))then
+            if( (mod(iter,1)==0) .and. (rank==0))then
                 print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
                 print *,"OLD:"
                 print *,"1:",phi(1,:,1)
@@ -835,6 +842,25 @@ contains
 
             deallocate(goodShocks)
             deallocate(badShocks)
+
+            ssErr=0.0D0
+            ssTot=0.0D0
+            avgK = sum(aggKHistory(:,2))/periodsForConv
+            do i=1,periodsForConv
+                ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
+                whichState=floor(aggKHistory(i,1))
+                if(i==1)then
+                    predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggK(1)))
+                else
+                    predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggKHistory(i-1,2)))
+                end if
+                ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
+            end do
+
+            if(rank == 0)then
+                print *,"R-squared: ",1.0D0-ssErr/ssTot
+            end if
+
         end do
 
         ssErr=0.0D0
@@ -844,14 +870,16 @@ contains
             ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
             whichState=floor(aggKHistory(i,1))
             if(i==1)then
-                predicted = phi(1,1,whichState)+phi(1,2,whichState)*log(aggK(1))
+                predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggK(1)))
             else
-                predicted = phi(1,1,whichState)+phi(1,2,whichState)*log(aggKHistory(i-1,2))
+                predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggKHistory(i-1,2)))
             end if
             ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
         end do
 
-        print *,"R-squared: ",1.0D0-ssErr/ssTot
+        if(rank == 0)then
+            print *,"R-squared: ",1.0D0-ssErr/ssTot
+        end if
         deallocate(vals)
         deallocate(aggK)
         deallocate(aggKp)
@@ -877,7 +905,6 @@ contains
         INTEGER,dimension(MPI_STATUS_SIZE):: stat
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
-
 
         k(1) = capitalCalc(r,ssEmployment(1,2),zShocks(1))
         aggK=aggregateBonds(.true.)
@@ -991,7 +1018,7 @@ contains
         else
             do j=1,n_k
                 do i=1,n_z
-                    kprime(i,j)=max(k(1),phi(i,1,1)+phi(i,2,1)*log(k(j)))
+                    kprime(i,j)=max(k(1),exp(phi(i,1,1)+phi(i,2,1)*log(k(j))))
                     kprime(i,j)=min(k(n_k),kprime(i,j))
                     if(rank==0)then
                         print *,i,j,k(j),kprime(i,j)
