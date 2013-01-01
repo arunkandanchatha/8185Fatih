@@ -723,11 +723,11 @@ contains
         ! initial guess for phi0 and phi1
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
-        !cheating, using pre-calculated values
-        !phi(1,1,1)=-4.2337319972451386D0
-        !phi(1,2,1)=5.8531520401416239D0
-        !phi(2,1,1)=-3.87237414492239927D0
-        !phi(2,2,1)=5.4815090493002243D0
+        !cheating, using pre-calculated values from Maliar
+        phi(1,1,1)=0.122D0
+        phi(1,2,1)=0.966D0
+        phi(2,1,1)=0.136D0
+        phi(2,2,1)=0.963D0
         phi(:,1,1)=log(aggK(1))
         phi(:,2,1)=0.1D0
         vals(1,:)=1.0D0
@@ -772,10 +772,7 @@ contains
             ! one for bad shocks
             !****************************************************
             j=0
-            print *,"AggK"
             do i=1,periodsForConv
-                print *,aggKHistory(i,:)
-                flush(6)
                 if(aggKHistory(i,1)>1.0D0)then
                     j=j+1
                 end if
@@ -795,7 +792,7 @@ contains
                     else
                         goodShocks(j,2)=log(aggKHistory(i-1,2))
                     end if
-                    goodShocks(j,3)=aggKHistory(i,2)
+                    goodShocks(j,3)=log(aggKHistory(i,2))
                 else
                     ii=ii+1
                     badShocks(ii,1)=1.0D0
@@ -804,7 +801,7 @@ contains
                     else
                         badShocks(ii,2)=log(aggKHistory(i-1,2))
                     end if
-                    badShocks(ii,3)=aggKHistory(i,2)
+                    badShocks(ii,3)=log(aggKHistory(i,2))
                 end if
             end do
 
@@ -1020,10 +1017,6 @@ contains
                 do i=1,n_z
                     kprime(i,j)=max(k(1),exp(phi(i,1,1)+phi(i,2,1)*log(k(j))))
                     kprime(i,j)=min(k(n_k),kprime(i,j))
-                    if(rank==0)then
-                        print *,i,j,k(j),kprime(i,j)
-                        flush(6)
-                    end if
                 end do
             end do
         end if
@@ -1263,7 +1256,7 @@ contains
             call MPI_ALLREDUCE(tempArray,tempArray2,numHouseholds,MPI_REAL8,MPI_SUM,MPI_COMM_WORLD,ierr)
 
             do j=1,numHouseholds
-                hhs(j)%capital=tempArray2(j)
+                hhs(j)%capital=min(max(tempArray2(j),a_min),a_max)
                 hhs(j)%employmentState=tempEmp2(j)
             end do
 
