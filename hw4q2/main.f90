@@ -518,7 +518,15 @@ contains
         capShare=capitalShare
         deriv1Func => d1Func
         deriv2Func => d2Func
+if(.not.associated(capitalFunc))then
+print *,"capital func in setParams is null."
+stop 0
+end if
         capitalCalc => capitalFunc
+if(.not.associated(capitalCalc,target=capitalFunc))then
+print *,"capitalCalc in setParams is null."
+stop 0
+end if
 
         reportNum = 500
 
@@ -588,6 +596,8 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
@@ -723,12 +733,12 @@ contains
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values from Maliar
-        phi(1,1,1)=0.15107110616449188D0
-        phi(1,2,1)=0.93731513060912675D0
-        phi(2,1,1)=0.10818954905023634D0
-        phi(2,2,1)=0.93747819452287962D0
-        !phi(:,1,1)=log(aggK(1))
-        !phi(:,2,1)=0.1D0
+        !phi(1,1,1)=0.15107110616449188D0
+        !phi(1,2,1)=0.93731513060912675D0
+        !phi(2,1,1)=0.10818954905023634D0
+        !phi(2,2,1)=0.93747819452287962D0
+        phi(:,1,1)=log(aggK(1))
+        phi(:,2,1)=0.0D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -754,8 +764,13 @@ contains
             ! do this each time, since previous value functions are probably
             ! garbage
             v=0D0
+#if 0
             forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
+#else
+            v(:,:,:,:,1)=lastStateV
+#endif
             g=0D0
+
 
             call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
             call getAllPolicy()
@@ -841,15 +856,11 @@ contains
 
             ssErr=0.0D0
             ssTot=0.0D0
-            avgK = sum(aggKHistory(:,2))/periodsForConv
-            do i=1,periodsForConv
+            avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
+            do i=2,periodsForConv
                 ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
                 whichState=floor(aggKHistory(i,1))
-                if(i==1)then
-                    predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggK(1)))
-                else
-                    predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
-                end if
+                predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
                 ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
             end do
 
@@ -861,15 +872,11 @@ contains
 
         ssErr=0.0D0
         ssTot=0.0D0
-        avgK = sum(aggKHistory(:,2))/periodsForConv
-        do i=1,periodsForConv
+        avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
+        do i=2,periodsForConv
             ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
             whichState=floor(aggKHistory(i,1))
-            if(i==1)then
-                predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggK(1)))
-            else
-                predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
-            end if
+            predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
             ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
         end do
 
@@ -898,10 +905,11 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
+        aggK(1)=capitalCalc(.1D0,1.0D0,1.0D0)
         k(1) = capitalCalc(r,ssEmployment(1,2),zShocks(1))
         aggK=aggregateBonds(.true.)
         totalCapital=aggK(periodsForConv)
@@ -927,7 +935,7 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
@@ -976,7 +984,7 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
 
         !************
         ! Timing variables
@@ -1142,7 +1150,7 @@ contains
         REAL(DP), dimension(periodsForConv,2) :: y
 
         INTEGER(I4B) :: i,j,ii,jj
-        REAL(DP) :: tempD, tempD2
+        REAL(DP) :: tempD, tempD2,averageK
         REAL(DP), DIMENSION(n_s,n_a) :: y2
         INTEGER(I4B), DIMENSION(periodsForConv+periodsToCut) :: z
         REAL(DP), DIMENSION(periodsForConv+periodsToCut) :: aggK
@@ -1155,7 +1163,7 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+        INTEGER,dimension(MPI_STATUS_SIZE):: stat
 
         !************
         ! Timing variables
@@ -1197,12 +1205,13 @@ contains
 
         !calculate aggregate capital
         aggK(1) = sum(hhs(:)%capital)/numHouseholds
+        averageK=aggK(1)
 
         !now let's update
         if((reportNum<maxit).and.(rank == 0))then
             print *, "SS"
             print *,"------------------------"
-            print *,"      iter      Capital                  Time"
+            print *,"      iter      Capital                  AverageK                Time"
             flush(6)
         end if
 
@@ -1260,10 +1269,10 @@ contains
             end do
 
             aggK(i)=sum(hhs(:)%capital)/numHouseholds
-
+            averageK=(averageK*(i-1)+aggK(i))/i
             if( (mod(i,reportNum)==0) .and. (rank ==0))then
                 call CPU_TIME(endTime)
-                print *,i,aggK(i),endTime-startTime
+                print *,i,aggK(i),averageK,endTime-startTime
                 flush(6)
             end if
         end do
@@ -1283,21 +1292,21 @@ program main
 
     use aiyagariSolve
     use brentWrapper
+
     REAL(DP) :: intDiff,xmin
     REAL(DP) :: capitalShare = 0.36D0
-    PROCEDURE(template_function), POINTER :: func
-    PROCEDURE(template_function2), POINTER :: d1func, d2func
-    PROCEDURE(template_function3), POINTER :: func2
-    INTEGER :: temp,temp2,printEvery=500,whichSet=3,ierr
+    PROCEDURE(template_function), POINTER,save :: func
+    PROCEDURE(template_function2), POINTER,save :: d1func, d2func
+    PROCEDURE(template_function3), POINTER,save :: func2a
+    INTEGER :: temp,temp2,printEvery=1,whichSet=3,ierr
     character(LEN=15) :: arg1,arg2
-    logical :: readFromFile
+    logical :: readFromFile=.false.
 
     !************
     ! Timing variables
     !************
     real(DP) :: startTime, endTime
 
-    readFromFile=.false.
     temp2=COMMAND_ARGUMENT_COUNT()
     if(temp2 > 0)then
         call GET_COMMAND_ARGUMENT(1, arg1, whichSet)
@@ -1314,11 +1323,10 @@ program main
 
     d1func => d1prod
     d2func => d2prod
-    func2 => impliedCapital
-
+    func2a => impliedCapital
     arg1="policy"
     arg2= "distrib"
-    call setParams(d1func, d2func, func2, arg1,arg2 , capitalShare, whichSet, printEvery)
+    call setParams(d1func, d2func, func2a, arg1,arg2 , capitalShare, whichSet, printEvery)
     call CPU_TIME(startTime)
     CALL MPI_INIT(ierr)
     call beginKrusellSmith(.not. readFromFile)
@@ -1326,27 +1334,34 @@ program main
     call CPU_TIME(endTime)
     print *,"a             ",xmin, intDiff, endTime-startTime
     flush(6)
-
 contains
     function production(capital,labour,shock) RESULT(y)
+    use nrtype
+    implicit none
         REAL(DP), INTENT(IN) :: capital, labour,shock
         REAL(DP) :: y
         y=shock*capital**capitalShare*labour**(1-capitalShare)
     end function production
 
     function d1prod(capital,labour,shock) RESULT(y)
+    use nrtype
+    implicit none
         REAL(DP), INTENT(IN) :: capital, labour,shock
         REAL(DP) :: y
         y=capitalShare*shock*capital**(capitalShare-1)*labour**(1-capitalShare)
     end function d1prod
 
     function d2prod(capital,labour,shock) RESULT(y)
+    use nrtype
+    implicit none
         REAL(DP), INTENT(IN) :: capital, labour,shock
         REAL(DP) :: y
         y=(1-capitalShare)*shock*capital**capitalShare*labour**(-capitalShare)
     end function d2prod
 
     function impliedCapital(interest,labour,shock) RESULT(y)
+    use nrtype
+    implicit none
         REAL(DP), INTENT(IN) :: interest, labour, shock
         REAL(DP) :: y
         y = interest/(capitalShare*shock)*&
