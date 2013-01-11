@@ -71,10 +71,10 @@
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.570762472" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release.615807278" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release">
-								<option id="gnu.fortran.link.option.paths.872473326" superClass="gnu.fortran.link.option.paths" valueType="stringList">
+								<option id="gnu.fortran.link.option.paths.872473326" name="Library search path (-L)" superClass="gnu.fortran.link.option.paths" valueType="stringList">
 									<listOptionValue builtIn="false" value="&quot;C:\Users\arun\SkyDrive\fortranlibs&quot;"/>
 								</option>
-								<option id="gnu.fortran.link.option.libs.1523449336" superClass="gnu.fortran.link.option.libs" valueType="libs">
+								<option id="gnu.fortran.link.option.libs.1523449336" name="Libraries (-l)" superClass="gnu.fortran.link.option.libs" valueType="libs">
 									<listOptionValue builtIn="false" value="lapack"/>
 								</option>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.linker.input.638455675" superClass="photran.managedbuild.tool.gnu.fortran.linker.input">
@@ -84,6 +84,54 @@
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.assembler.win32.exe.release.1359884647" name="GCC Assembler" superClass="photran.managedbuild.tool.gnu.assembler.win32.exe.release">
 								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.1390144416" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="photran.managedbuild.config.gnu.fortran.win32.exe.release.1835615870.217291774">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="photran.managedbuild.config.gnu.fortran.win32.exe.release.1835615870.217291774" moduleId="org.eclipse.cdt.core.settings" name="mpi">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.PE" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.photran.core.GFortranErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildProperties="" cleanCommand="rm -rf" description="use mpi to build" errorParsers="org.eclipse.cdt.core.GmakeErrorParser;org.eclipse.photran.core.GFortranErrorParser;org.eclipse.cdt.core.GCCErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.GASErrorParser" id="photran.managedbuild.config.gnu.fortran.win32.exe.release.1835615870.217291774" name="mpi" parent="photran.managedbuild.config.gnu.fortran.win32.exe.release">
+					<folderInfo id="photran.managedbuild.config.gnu.fortran.win32.exe.release.1835615870.217291774." name="/" resourcePath="">
+						<toolChain id="photran.managedbuild.toolchain.gnu.fortran.win32.exe.release.971808621" name="GCC Fortran" superClass="photran.managedbuild.toolchain.gnu.fortran.win32.exe.release">
+							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.PE" id="photran.managedbuild.target.gnu.platform.fortran.win32.exe.release.1954857836" name="Release Platform" osList="win32" superClass="photran.managedbuild.target.gnu.platform.fortran.win32.exe.release"/>
+							<builder buildPath="${workspace_loc:/hw4q2/Release}" id="photran.managedbuild.target.gnu.builder.win32.exe.release.672111277" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="Gnu Make Builder" superClass="photran.managedbuild.target.gnu.builder.win32.exe.release"/>
+							<tool id="photran.managedbuild.tool.gnu.c.compiler.win32.exe.release.309567351" name="GCC C Compiler" superClass="photran.managedbuild.tool.gnu.c.compiler.win32.exe.release">
+								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1571739167" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
+							</tool>
+							<tool command="mpif90" id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release.213457066" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release">
+								<option id="gnu.fortran.compiler.option.misc.other.1185085452" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.warnings.toerrors.697306609" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="true" valueType="boolean"/>
+								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.313174007" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
+							</tool>
+							<tool command="mpif90" id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release.1553804052" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release">
+								<option id="gnu.fortran.link.option.paths.1923901885" name="Library search path (-L)" superClass="gnu.fortran.link.option.paths" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;C:\Users\arun\SkyDrive\fortranlibs&quot;"/>
+								</option>
+								<option id="gnu.fortran.link.option.libs.230071786" name="Libraries (-l)" superClass="gnu.fortran.link.option.libs" valueType="libs">
+									<listOptionValue builtIn="false" value="lapack"/>
+								</option>
+								<inputType id="photran.managedbuild.tool.gnu.fortran.linker.input.685678446" superClass="photran.managedbuild.tool.gnu.fortran.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="photran.managedbuild.tool.gnu.assembler.win32.exe.release.962142589" name="GCC Assembler" superClass="photran.managedbuild.tool.gnu.assembler.win32.exe.release">
+								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.2016696464" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
 							</tool>
 						</toolChain>
 					</folderInfo>

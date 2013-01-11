@@ -456,7 +456,7 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  sigma=.4D0
     integer, parameter                  ::  n_a=301
     integer                             :: myseed = 4567
-    integer, parameter                  :: periodsForConv = 5000
+    integer, parameter                  :: periodsForConv = 10000
     integer, parameter                  :: periodsToCut = 1000
     integer, parameter                  :: numHouseholds = 50000
 
@@ -466,12 +466,12 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=50.0D0
-    REAL(DP), parameter                   ::  k_min=2.0D0, k_max = 100.0D0
+    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=150.0D0
+    REAL(DP), parameter                   ::  k_min=2.0D0, k_max = 200.0D0
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
     REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-5
-    REAL(DP),parameter                    ::  lambda = 0.05 ! how much confidence in new value
+    REAL(DP),parameter                    ::  lambda = 0.1 ! how much confidence in new value
 
     integer                  ::  n_z   ! The number of aggregate states
     integer                  ::  n_s   ! The number of employment states
@@ -588,7 +588,6 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-        INTEGER,dimension(MPI_STATUS_SIZE):: stat
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
@@ -724,12 +723,12 @@ contains
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values from Maliar
-        phi(1,1,1)=0.122D0
-        phi(1,2,1)=0.966D0
-        phi(2,1,1)=0.136D0
-        phi(2,2,1)=0.963D0
-        phi(:,1,1)=log(aggK(1))
-        phi(:,2,1)=0.1D0
+        phi(1,1,1)=0.15107110616449188D0
+        phi(1,2,1)=0.93731513060912675D0
+        phi(2,1,1)=0.10818954905023634D0
+        phi(2,2,1)=0.93747819452287962D0
+        !phi(:,1,1)=log(aggK(1))
+        !phi(:,2,1)=0.1D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -831,7 +830,7 @@ contains
                 flush(6)
             end if
 
-            if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<1D0-5)then
+            if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<1D0-6)then
                 iterComplete = .true.
             end if
 
@@ -847,9 +846,9 @@ contains
                 ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
                 whichState=floor(aggKHistory(i,1))
                 if(i==1)then
-                    predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggK(1)))
+                    predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggK(1)))
                 else
-                    predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggKHistory(i-1,2)))
+                    predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
                 end if
                 ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
             end do
@@ -867,9 +866,9 @@ contains
             ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
             whichState=floor(aggKHistory(i,1))
             if(i==1)then
-                predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggK(1)))
+                predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggK(1)))
             else
-                predicted = exp(phi(1,1,whichState)+phi(1,2,whichState)*log(aggKHistory(i-1,2)))
+                predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
             end if
             ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
         end do
@@ -899,7 +898,7 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
@@ -928,7 +927,7 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
         CALL MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
         CALL MPI_COMM_SIZE(MPI_COMM_WORLD, mysize, ierr)
 
@@ -977,7 +976,7 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
 
         !************
         ! Timing variables
@@ -1156,7 +1155,7 @@ contains
         ! MPI vars
         !************
         INTEGER rank, ierr, mysize
-        INTEGER,dimension(MPI_STATUS_SIZE):: stat
+!        INTEGER,dimension(MPI_STATUS_SIZE):: stat
 
         !************
         ! Timing variables
