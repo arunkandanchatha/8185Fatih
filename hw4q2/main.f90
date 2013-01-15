@@ -456,9 +456,9 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  sigma=.4D0
     integer, parameter                  ::  n_a=301
     integer                             :: myseed = 4567
-    integer, parameter                  :: periodsForConv = 10000
-    integer, parameter                  :: periodsToCut = 1000
-    integer, parameter                  :: numHouseholds = 50000
+    integer, parameter                  :: periodsForConv = 5000
+    integer, parameter                  :: periodsToCut = 500
+    integer, parameter                  :: numHouseholds = 10000
 
     !******************
     ! These are here because of screwey splines
@@ -466,12 +466,12 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=150.0D0
-    REAL(DP), parameter                   ::  k_min=2.0D0, k_max = 200.0D0
+    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=50.0D0
+    REAL(DP), parameter                   ::  k_min=1.0D0, k_max = 100.0D0
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
     REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-5
-    REAL(DP),parameter                    ::  lambda = 0.1 ! how much confidence in new value
+    REAL(DP),parameter                    ::  lambda = 1 ! how much confidence in new value
 
     integer                  ::  n_z   ! The number of aggregate states
     integer                  ::  n_s   ! The number of employment states
@@ -486,6 +486,7 @@ module aiyagariSolve
     REAL(DP), allocatable, dimension(:,:,:,:,:):: v
     REAL(DP), allocatable, dimension(:,:,:,:)  :: g
     REAL(DP), allocatable, dimension(:,:,:,:)  ::  lastStateV
+    LOGICAL :: lastStateVSet=.false.
     TYPE(household), dimension(numHouseholds)  ::  ssDistrib
     REAL(DP), DIMENSION(periodsForConv) :: lastKSeq
     REAL(DP),allocatable,dimension(:,:,:) :: phi
@@ -575,6 +576,7 @@ end if
         deallocate(v)
         deallocate(g)
         deallocate(lastStateV)
+        lastStateVSet=.false.
         deallocate(wFixed)
         deallocate(rFixed)
         deallocate(phi)
@@ -718,7 +720,7 @@ end if
         transition(2,1,1,2) = 0.03125D0
         transition(2,1,2,1) = 0.291667D0
         transition(2,1,2,2) = 0.583333D0
-        transition(2,2,1,1) = 0.09375D0
+        transition(2,2,1,1) = 0.009115D0
         transition(2,2,1,2) = 0.115885D0
         transition(2,2,2,1) = 0.024306D0
         transition(2,2,2,2) = 0.8506941D0
@@ -733,10 +735,10 @@ end if
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values from Maliar
-        !phi(1,1,1)=0.15107110616449188D0
-        !phi(1,2,1)=0.93731513060912675D0
-        !phi(2,1,1)=0.10818954905023634D0
-        !phi(2,2,1)=0.93747819452287962D0
+        phi(1,1,1)= 0.16722700964632284D0
+        phi(1,2,1)=0.9306625989938275D0
+        phi(2,1,1)=0.09366977138803959D0
+        phi(2,2,1)=0.9435539825477558D0
         phi(:,1,1)=log(aggK(1))
         phi(:,2,1)=0.0D0
         vals(1,:)=1.0D0
@@ -756,6 +758,7 @@ end if
 
         iter = 0
         iterComplete=.false.
+        open(unit=1,file="estimates")
         do while ( (iter<maxit) .and. (.not. iterComplete))
             iter = iter+1
 
@@ -764,13 +767,15 @@ end if
             ! do this each time, since previous value functions are probably
             ! garbage
             v=0D0
-#if 0
-            forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
-#else
-            v(:,:,:,:,1)=lastStateV
-#endif
-            g=0D0
 
+            if(lastStateVSet)then
+               v(:,:,:,:,1)=lastStateV
+            else
+               forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
+            end if
+               forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
+            g=0D0
+  
 
             call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
             call getAllPolicy()
@@ -858,10 +863,13 @@ end if
             ssTot=0.0D0
             avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
             do i=2,periodsForConv
-                ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
+                ssTot=ssTot+log(aggKHistory(i,2)/avgK)**2
                 whichState=floor(aggKHistory(i,1))
-                predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
-                ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
+                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
+                ssErr=ssErr+(log(aggKHistory(i,2))-predicted)**2
+                write (1,*) i,",",predicted,",",log(aggKHistory(i,2))
+                print *,i
+                flush(6)
             end do
 
             if(rank == 0)then
@@ -869,15 +877,22 @@ end if
             end if
 
         end do
+        close(1)
 
         ssErr=0.0D0
         ssTot=0.0D0
         avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
         do i=2,periodsForConv
+                ssTot=ssTot+log(aggKHistory(i,2)/avgK)**2
+                whichState=floor(aggKHistory(i,1))
+                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
+                ssErr=ssErr+(log(aggKHistory(i,2))-predicted)**2
+#if 0
             ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
             whichState=floor(aggKHistory(i,1))
             predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
             ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
+#endif
         end do
 
         if(rank == 0)then
@@ -1143,6 +1158,7 @@ end if
         end if
 
         lastStateV(:,:,:,:) = v(:,:,:,:,1)
+        lastStateVSet=.true.
     end subroutine  getAllPolicy
 
     FUNCTION findSteadyStateCapital(noShocks) RESULT(y)
