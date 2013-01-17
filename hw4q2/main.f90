@@ -471,7 +471,7 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
     REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-5
-    REAL(DP),parameter                    ::  lambda = 1 ! how much confidence in new value
+    REAL(DP),parameter                    ::  lambda = 0.1 ! how much confidence in new value
 
     integer                  ::  n_z   ! The number of aggregate states
     integer                  ::  n_s   ! The number of employment states
@@ -735,12 +735,12 @@ end if
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values from Maliar
-        phi(1,1,1)= 0.16722700964632284D0
-        phi(1,2,1)=0.9306625989938275D0
-        phi(2,1,1)=0.09366977138803959D0
-        phi(2,2,1)=0.9435539825477558D0
-        phi(:,1,1)=log(aggK(1))
-        phi(:,2,1)=0.0D0
+        phi(1,1,1)= 0.122D0
+        phi(1,2,1)=0.966D0
+        phi(2,1,1)=0.136D0
+        phi(2,2,1)=0.963D0
+!        phi(:,1,1)=log(aggK(1))
+!        phi(:,2,1)=0.0D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -758,7 +758,6 @@ end if
 
         iter = 0
         iterComplete=.false.
-        open(unit=1,file="estimates")
         do while ( (iter<maxit) .and. (.not. iterComplete))
             iter = iter+1
 
@@ -773,9 +772,7 @@ end if
             else
                forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
             end if
-               forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
             g=0D0
-  
 
             call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
             call getAllPolicy()
@@ -862,22 +859,24 @@ end if
             ssErr=0.0D0
             ssTot=0.0D0
             avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
+        open(unit=1,file="estimates")
+        write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
+        write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
+        write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
             do i=2,periodsForConv
                 ssTot=ssTot+log(aggKHistory(i,2)/avgK)**2
                 whichState=floor(aggKHistory(i,1))
                 predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
                 ssErr=ssErr+(log(aggKHistory(i,2))-predicted)**2
-                write (1,*) i,",",predicted,",",log(aggKHistory(i,2))
-                print *,i
-                flush(6)
+                write (1,*) i,",",whichState,",",predicted,",",log(aggKHistory(i,2))
             end do
+        close(1)
 
             if(rank == 0)then
                 print *,"R-squared: ",1.0D0-ssErr/ssTot
             end if
 
         end do
-        close(1)
 
         ssErr=0.0D0
         ssTot=0.0D0
@@ -1240,7 +1239,7 @@ end if
                 tempInt=0
                 do ii=rank+1,n_a,mysize
                     do j=1,n_s
-                        tempInt(j,ii)=linear(g(z(i-1),:,j,ii),k,aggK(i-1))
+                        tempInt(j,ii)=linear(g(z(i),:,j,ii),k,aggK(i-1))
                     end do
                 end do
                 call MPI_BARRIER(MPI_COMM_WORLD,ierr)
