@@ -858,17 +858,17 @@ end if
 
             ssErr=0.0D0
             ssTot=0.0D0
-            avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
+            avgK = sum(aggKHistory(:,2))/periodsForConv
         open(unit=1,file="estimates")
         write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
         write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
         write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
-            do i=2,periodsForConv
+            do i=1,periodsForConv-1
                 ssTot=ssTot+log(aggKHistory(i,2)/avgK)**2
                 whichState=floor(aggKHistory(i,1))
-                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
-                ssErr=ssErr+(log(aggKHistory(i,2))-predicted)**2
-                write (1,*) i,",",whichState,",",predicted,",",log(aggKHistory(i,2))
+                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i,2))
+                ssErr=ssErr+(log(aggKHistory(i+1,2))-predicted)**2
+                write (1,*) i,",",whichState,",",predicted,",",log(aggKHistory(i+1,2))
             end do
         close(1)
 
@@ -1239,7 +1239,7 @@ end if
                 tempInt=0
                 do ii=rank+1,n_a,mysize
                     do j=1,n_s
-                        tempInt(j,ii)=linear(g(z(i),:,j,ii),k,aggK(i-1))
+                        tempInt(j,ii)=linear(g(z(i-1),:,j,ii),k,aggK(i-1))
                     end do
                 end do
                 call MPI_BARRIER(MPI_COMM_WORLD,ierr)
