@@ -1191,6 +1191,8 @@ end if
         call CPU_TIME(startTime)
         !first, draw T states for the economy
         num= rand(myseed)
+
+        !z(i) is the shock received in period i
         z(1)=1
 
         do i=2,periodsForConv+periodsToCut
@@ -1219,6 +1221,8 @@ end if
         end if
 
         !calculate aggregate capital
+        !NOTE: aggK(i) is the aggregate capital entering into period i
+        !      NOT the amount coming out of period i
         aggK(1) = sum(hhs(:)%capital)/numHouseholds
         averageK=aggK(1)
 
@@ -1230,7 +1234,7 @@ end if
             flush(6)
         end if
 
-        do i=2,periodsForConv+periodsToCut
+        do i=1,periodsForConv+periodsToCut-1
             !interpolate all the policy functions to the current aggregate capital level
             if(noshocks)then
                 gint = g(1,1,:,:)
@@ -1239,7 +1243,8 @@ end if
                 tempInt=0
                 do ii=rank+1,n_a,mysize
                     do j=1,n_s
-                        tempInt(j,ii)=linear(g(z(i-1),:,j,ii),k,aggK(i-1))
+                        !note that we know the shock before we make our policy choice
+                        tempInt(j,ii)=linear(g(z(i),:,j,ii),k,aggK(i))
                     end do
                 end do
                 call MPI_BARRIER(MPI_COMM_WORLD,ierr)
@@ -1283,11 +1288,12 @@ end if
                 hhs(j)%employmentState=tempEmp2(j)
             end do
 
-            aggK(i)=sum(hhs(:)%capital)/numHouseholds
-            averageK=(averageK*(i-1)+aggK(i))/i
+            ! set capital level for next period
+            aggK(i+1)=sum(hhs(:)%capital)/numHouseholds
+            averageK=averageK+aggK(i+1)
             if( (mod(i,reportNum)==0) .and. (rank ==0))then
                 call CPU_TIME(endTime)
-                print *,i,aggK(i),averageK,endTime-startTime
+                print *,i,aggK(i),averageK/(i+1),endTime-startTime
                 flush(6)
             end if
         end do
