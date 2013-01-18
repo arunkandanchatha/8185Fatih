@@ -788,36 +788,28 @@ end if
             ! one for bad shocks
             !****************************************************
             j=0
-            do i=1,periodsForConv
+            do i=1,periodsForConv-1
                 if(aggKHistory(i,1)>1.0D0)then
                     j=j+1
                 end if
             end do
 
             allocate(goodShocks(j,3))
-            allocate(badShocks(periodsForConv-j,3))
+            allocate(badShocks(periodsForConv-j-1,3))
 
             j=0
             ii=0
-            do i=1,periodsForConv
+            do i=1,periodsForConv-1
                 if(aggKHistory(i,1)>1.0D0)then
                     j=j+1
                     goodShocks(j,1)=1.0D0
-                    if(i==1)then
-                        goodShocks(j,2)=log(aggK(1))
-                    else
-                        goodShocks(j,2)=log(aggKHistory(i-1,2))
-                    end if
-                    goodShocks(j,3)=log(aggKHistory(i,2))
+                    goodShocks(j,2)=log(aggKHistory(i,2))
+                    goodShocks(j,3)=log(aggKHistory(i+1,2))
                 else
                     ii=ii+1
                     badShocks(ii,1)=1.0D0
-                    if(i==1)then
-                        badShocks(ii,2)=log(aggK(1))
-                    else
-                        badShocks(ii,2)=log(aggKHistory(i-1,2))
-                    end if
-                    badShocks(ii,3)=log(aggKHistory(i,2))
+                    badShocks(ii,2)=log(aggKHistory(i,2))
+                    badShocks(ii,3)=log(aggKHistory(i+1,2))
                 end if
             end do
 
@@ -828,9 +820,10 @@ end if
             !First for good shocks
             j=size(goodShocks,dim=1)
             call dgels('N', j, 2, 1, goodShocks(:,1:2), j, goodShocks(:,3),j, workArray,size(workArray),i)
-
             phi(1,1,2)=goodShocks(1,3)
             phi(1,2,2)=goodShocks(2,3)
+
+            !And for bad shocks
             j=size(badShocks,dim=1)
             call dgels('N', j, 2, 1, badShocks(:,1:2), j, badShocks(:,3),j, workArray,size(workArray),i)
             phi(2,1,2)=badShocks(1,3)
@@ -858,17 +851,17 @@ end if
 
             ssErr=0.0D0
             ssTot=0.0D0
-            avgK = sum(aggKHistory(:,2))/periodsForConv
+            avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
         open(unit=1,file="estimates")
         write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
         write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
         write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
-            do i=1,periodsForConv-1
-                ssTot=ssTot+log(aggKHistory(i,2)/avgK)**2
-                whichState=floor(aggKHistory(i,1))
-                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i,2))
-                ssErr=ssErr+(log(aggKHistory(i+1,2))-predicted)**2
-                write (1,*) i,",",whichState,",",predicted,",",log(aggKHistory(i+1,2))
+            do i=2,periodsForConv
+                ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
+                whichState=floor(aggKHistory(i-1,1))
+                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
+                ssErr=ssErr+(aggKHistory(i,2)-exp(predicted))**2
+                write (1,*) i,",",whichState,",",predicted,",",aggKHistory(i,2)
             end do
         close(1)
 
@@ -882,16 +875,10 @@ end if
         ssTot=0.0D0
         avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
         do i=2,periodsForConv
-                ssTot=ssTot+log(aggKHistory(i,2)/avgK)**2
-                whichState=floor(aggKHistory(i,1))
-                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
-                ssErr=ssErr+(log(aggKHistory(i,2))-predicted)**2
-#if 0
             ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
-            whichState=floor(aggKHistory(i,1))
-            predicted = exp(phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2)))
-            ssErr=ssErr+(aggKHistory(i,2)-predicted)**2
-#endif
+            whichState=floor(aggKHistory(i-1,1))
+            predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
+            ssErr=ssErr+(aggKHistory(i,2)-exp(predicted))**2
         end do
 
         if(rank == 0)then
