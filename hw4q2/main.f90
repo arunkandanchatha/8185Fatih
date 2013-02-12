@@ -379,12 +379,18 @@ contains
         REAL(DP) :: z
         REAL(DP) ::  rp
         integer  ::  i,j
-        REAL(DP) :: temp,eps=epsilon(1.0D0)
+        REAL(DP) :: temp,eps=epsilon(1.0D0), penalty, tempx
         REAL(DP), dimension(n_z,n_s)            ::  interpolated
 
+        penalty=0.0_dp
+        tempx=x
+        if(x<0)then
+            penalty=(10-x)**2
+            tempx=0.0_dp
+        end if
         do i=1,n_z
             do j=1,n_s
-                interpolated(i,j)=splint(a,v(i,currentAggCapital,j,:),y2(i,currentAggCapital,j,:),x)
+                interpolated(i,j)=splint(a,v(i,currentAggCapital,j,:),y2(i,currentAggCapital,j,:),tempx)
 
                 if(isNaN(interpolated(i,j)))then
                     print *,"interpolated value in value function is NaN"
@@ -422,11 +428,12 @@ contains
             end do
         end do
         temp = a(currentCapital)*(1+r(currentAggState,currentAggCapital)-delta)+&
-            s(currentState)*w(currentAggState,currentAggCapital)-x
+            s(currentState)*w(currentAggState,currentAggCapital)-tempx
         if(temp < eps) then
+            penalty=(10.0_dp-temp)**2
             temp=eps
         end if
-        z=-(log(temp)+beta*rp)
+        z=-(log(temp)+beta*rp-penalty)
         if(z<-10D50)then
             print *,"value function too low"
             print *,temp,beta,rp
@@ -454,11 +461,11 @@ module aiyagariSolve
     INCLUDE 'mpif.h'
 
     REAL(DP), parameter                   ::  sigma=.4D0
-    integer, parameter                  ::  n_a=301
-    integer                             :: myseed = 4567
-    integer, parameter                  :: periodsForConv = 5000
-    integer, parameter                  :: periodsToCut = 500
-    integer, parameter                  :: numHouseholds = 10000
+    integer, parameter                  ::  n_a=501
+    integer                             :: myseed = 45678
+    integer, parameter                  :: periodsForConv = 5001
+    integer, parameter                  :: periodsToCut = 1000
+    integer, parameter                  :: numHouseholds = 25000
 
     !******************
     ! These are here because of screwey splines
@@ -466,12 +473,12 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    REAL(DP), parameter                   ::  curv=3.0D0,a_min=0.01D0/numHouseholds, a_max=50.0D0
-    REAL(DP), parameter                   ::  k_min=1.0D0, k_max = 100.0D0
-    REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
+    REAL(DP), parameter                   ::  curv=2.0D0,a_min=0.001D0/numHouseholds, a_max=35.0D0
+    REAL(DP), parameter                   ::  k_min=1.0D0, k_max = 50.0D0
+    REAL(DP), parameter                   ::  beta=0.98, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
-    REAL(DP),parameter                    ::  toll=1D-8,tol2=1D-5
-    REAL(DP),parameter                    ::  lambda = 0.1 ! how much confidence in new value
+    REAL(DP),parameter                    ::  toll=1D-9,tol2=1D-9
+    REAL(DP),parameter                    ::  lambda = 0.25 ! how much confidence in new value
 
     integer                  ::  n_z   ! The number of aggregate states
     integer                  ::  n_s   ! The number of employment states
@@ -587,7 +594,7 @@ end if
         LOGICAL :: doSS
         REAL(DP)  ::  incr, ssErr, ssTot, predicted
         REAL(DP),allocatable,dimension(:,:) :: vals,goodShocks,badShocks
-        REAL(DP),allocatable,dimension(:) ::  aggK,aggKp
+        REAL(DP),allocatable,dimension(:) ::  aggK
         REAL(DP), dimension(periodsForConv,2):: aggKHistory
         REAL(DP),dimension(2*periodsForConv*2) :: workArray
         LOGICAL :: iterComplete
@@ -627,7 +634,6 @@ end if
             ! and we set up an initial guess for it
             allocate(vals(n_z,2))
             allocate(aggK(n_z))
-            allocate(aggKp(n_z))
             v=0D0
             forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
             g=0D0
@@ -665,7 +671,6 @@ end if
             call deallocateArrays()
             deallocate(vals)
             deallocate(aggK)
-            deallocate(aggKp)
         else
             open(unit=1,file=distribOutput)
             do i=1,numHouseholds
@@ -681,7 +686,6 @@ end if
         call allocateArrays(2,2,100)
         allocate(vals(n_z,2))
         allocate(aggK(n_z))
-        allocate(aggKp(n_z))
 
         ! Set aggregate capital grid over which we want to evaluate, K
         ! curving this allows convergence. Without, it doesn't. Damn I hate splines!
@@ -735,19 +739,17 @@ end if
         !************************************************************************
         aggK(:)=sum(ssDistrib(:)%capital)/numHouseholds
         !cheating, using pre-calculated values from Maliar
-        phi(1,1,1)= 0.122D0
-        phi(1,2,1)=0.966D0
-        phi(2,1,1)=0.136D0
-        phi(2,2,1)=0.963D0
-!        phi(:,1,1)=log(aggK(1))
-!        phi(:,2,1)=0.0D0
+        !actually, precomputed
+        !Note: phi(i,j,k): i=2 is good shocks, i=1 is bad shocks
+        !                  j=1 is param for constant, j=2 is param for log
+!        phi(2,1,1)= 0.17623267724233646D0
+!        phi(2,2,1)= 0.885892948484075D0
+!        phi(1,1,1)= 0.07484747486480285D0
+!        phi(1,2,1)= 0.9487251273220929D0
+        phi(:,1,1)=log(aggK(1))
+        phi(:,2,1)=0.0D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
-
-        ! given K, find K'
-        do i=1,n_z
-            aggKp(i)=exp(dot_product(phi(i,:,1),vals(:,i)))
-        end do
 
         do i=1,n_z
             do j=1,n_k
@@ -767,11 +769,12 @@ end if
             ! garbage
             v=0D0
 
-            if(lastStateVSet)then
+            if (lastStateVSet .and. (mod(iter,10) .ne. 0))then
                v(:,:,:,:,1)=lastStateV
             else
                forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
             end if
+               forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
             g=0D0
 
             call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
@@ -817,26 +820,26 @@ end if
             ! Find phi(0) and phi(1) using OLS
             !**************************************************
 
-            !First for good shocks
+            !First for good shocks, which are state 2
             j=size(goodShocks,dim=1)
             call dgels('N', j, 2, 1, goodShocks(:,1:2), j, goodShocks(:,3),j, workArray,size(workArray),i)
-            phi(1,1,2)=goodShocks(1,3)
-            phi(1,2,2)=goodShocks(2,3)
+            phi(2,1,2)=goodShocks(1,3)
+            phi(2,2,2)=goodShocks(2,3)
 
-            !And for bad shocks
+            !And for bad shocks, which are state 1
             j=size(badShocks,dim=1)
             call dgels('N', j, 2, 1, badShocks(:,1:2), j, badShocks(:,3),j, workArray,size(workArray),i)
-            phi(2,1,2)=badShocks(1,3)
-            phi(2,2,2)=badShocks(2,3)
+            phi(1,1,2)=badShocks(1,3)
+            phi(1,2,2)=badShocks(2,3)
 
             if( (mod(iter,1)==0) .and. (rank==0))then
                 print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
                 print *,"OLD:"
-                print *,"1:",phi(1,:,1)
-                print *,"2:",phi(2,:,1)
+                print *,"G:",phi(2,:,1)
+                print *,"B:",phi(1,:,1)
                 print *,"NEW:"
-                print *,"1:",phi(1,:,2)
-                print *,"2:",phi(2,:,2)
+                print *,"G:",phi(2,:,2)
+                print *,"B:",phi(1,:,2)
                 flush(6)
             end if
 
@@ -852,20 +855,20 @@ end if
             ssErr=0.0D0
             ssTot=0.0D0
             avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
-        open(unit=1,file="estimates")
-        write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
-        write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
-        write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
-            do i=2,periodsForConv
-                ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
-                whichState=floor(aggKHistory(i-1,1))
-                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
-                ssErr=ssErr+(aggKHistory(i,2)-exp(predicted))**2
-                write (1,*) i,",",whichState,",",predicted,",",aggKHistory(i,2)
-            end do
-        close(1)
 
             if(rank == 0)then
+                open(unit=1,file="estimates1")
+                write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
+                write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
+                write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
+                do i=2,periodsForConv
+                    ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
+                    whichState=floor(aggKHistory(i-1,1))
+                    predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
+                    ssErr=ssErr+(aggKHistory(i,2)-exp(predicted))**2
+                    write (1,*) i,",",whichState,",",exp(predicted),",",aggKHistory(i,2)
+                end do
+                close(1)
                 print *,"R-squared: ",1.0D0-ssErr/ssTot
             end if
 
@@ -874,21 +877,24 @@ end if
         ssErr=0.0D0
         ssTot=0.0D0
         avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
+        open(unit=1,file="estimates1")
+        write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
+        write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
+        write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
         do i=2,periodsForConv
             ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
             whichState=floor(aggKHistory(i-1,1))
             predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
             ssErr=ssErr+(aggKHistory(i,2)-exp(predicted))**2
+            write (1,*) i,",",whichState,",",exp(predicted),",",aggKHistory(i,2)
         end do
+        close(1)
 
         if(rank == 0)then
             print *,"R-squared: ",1.0D0-ssErr/ssTot
         end if
         deallocate(vals)
         deallocate(aggK)
-        deallocate(aggKp)
-        deallocate(goodShocks)
-        deallocate(badShocks)
 
     end subroutine beginKrusellSmith
 
@@ -913,7 +919,7 @@ end if
         aggK(1)=capitalCalc(.1D0,1.0D0,1.0D0)
         k(1) = capitalCalc(r,ssEmployment(1,2),zShocks(1))
         aggK=aggregateBonds(.true.)
-        totalCapital=aggK(periodsForConv)
+        totalCapital=sum(aggK)/periodsForConv
         z=abs(totalCapital-k(1))
 
         if(rank == 0)then
@@ -1280,7 +1286,7 @@ end if
             averageK=averageK+aggK(i+1)
             if( (mod(i,reportNum)==0) .and. (rank ==0))then
                 call CPU_TIME(endTime)
-                print *,i,aggK(i),averageK/(i+1),endTime-startTime
+                print *,i,aggK(i),averageK/i,endTime-startTime
                 flush(6)
             end if
         end do
