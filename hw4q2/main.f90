@@ -3,6 +3,82 @@ module utilFuncs
     use nrtype
     use nrutil
 contains
+
+    SUBROUTINE mnbrak(ax,bx,cx,fa,fb,fc,func)
+        USE nrtype; USE nrutil, ONLY : swap
+        IMPLICIT NONE
+        REAL(dp), INTENT(INOUT) :: ax,bx
+        REAL(dp), INTENT(OUT) :: cx,fa,fb,fc
+        INTERFACE
+            FUNCTION func(x)
+                USE nrtype
+                IMPLICIT NONE
+                REAL(dp), INTENT(IN) :: x
+                REAL(dp) :: func
+            END FUNCTION func
+        END INTERFACE
+        REAL(dp), PARAMETER :: GOLD=1.618034_dp,GLIMIT=100.0_dp,TINY=1.0e-20_dp
+        REAL(dp) :: fu,q,r,u,ulim
+        fa=func(ax)
+        fb=func(bx)
+        if (fb > fa) then
+            call swap(ax,bx)
+            call swap(fa,fb)
+        end if
+        cx=bx+GOLD*(bx-ax)
+        fc=func(cx)
+        do
+            if (fb < fc) RETURN
+            r=(bx-ax)*(fb-fc)
+            q=(bx-cx)*(fb-fa)
+            u=bx-((bx-cx)*q-(bx-ax)*r)/(2.0_dp*sign(max(abs(q-r),TINY),q-r))
+            ulim=bx+GLIMIT*(cx-bx)
+            if ((bx-u)*(u-cx) > 0.0) then
+                fu=func(u)
+                if (fu < fc) then
+                    ax=bx
+                    fa=fb
+                    bx=u
+                    fb=fu
+                    RETURN
+                else if (fu > fb) then
+                    cx=u
+                    fc=fu
+                    RETURN
+                end if
+                u=cx+GOLD*(cx-bx)
+                fu=func(u)
+            else if ((cx-u)*(u-ulim) > 0.0) then
+                fu=func(u)
+                if (fu < fc) then
+                    bx=cx
+                    cx=u
+                    u=cx+GOLD*(cx-bx)
+                    call shft(fb,fc,fu,func(u))
+                end if
+            else if ((u-ulim)*(ulim-cx) >= 0.0) then
+                u=ulim
+                fu=func(u)
+            else
+                u=cx+GOLD*(cx-bx)
+                fu=func(u)
+            end if
+            call shft(ax,bx,cx,u)
+            call shft(fa,fb,fc,fu)
+        end do
+    CONTAINS
+        !BL
+        SUBROUTINE shft(a,b,c,d)
+            REAL(dp), INTENT(OUT) :: a
+            REAL(dp), INTENT(INOUT) :: b,c
+            REAL(dp), INTENT(IN) :: d
+            a=b
+            b=c
+            c=d
+        END SUBROUTINE shft
+    END SUBROUTINE mnbrak
+
+
     ! given arrays x and y of length N containing a tabulated function
     ! given values yp1 and ypn for the first derivative of the interpolating function at points 1 and N
     ! this routine returns an array y2 of length N that contains the second derivatives
@@ -356,19 +432,22 @@ contains
         deallocate(w)
     end subroutine wrapperDestroy
 
-    function callBrent(econState, aggCap, state,capital, myfunc, kr1, kr2, kr3, tol, minPoint) RESULT (y)
+    function callBrent(econState, aggCap, state,capital, myfunc, tol, minPoint) RESULT (y)
         IMPLICIT NONE
         INTEGER, INTENT(IN) :: econState, aggCap, state, capital
-        REAL(dp), INTENT(IN) :: kr1,kr2,kr3,tol
+        REAL(dp), INTENT(IN) :: tol
         REAL(dp), INTENT(OUT) :: minPoint
         PROCEDURE(template_function), POINTER :: myfunc
-        REAL(dp) :: y
+        REAL(dp) :: y, kr1, kr2, kr3, f1, f2, f3
 
         currentState = state
         currentCapital = capital
         currentAggState = econState
         currentAggCapital = aggCap
 
+        kr1=2.0_dp*a(n_a)
+        kr2=1.99_dp*a(n_a)
+        call mnbrak(kr1, kr2, kr3, f1, f2, f3, myfunc)
         y=brent(myfunc, kr1, kr2, kr3, tol, minPoint)
 
     end function callBrent
@@ -385,8 +464,11 @@ contains
         penalty=0.0_dp
         tempx=x
         if(x<0)then
-            penalty=(10-x)**2
+            penalty=penalty+abs(x)**3
             tempx=0.0_dp
+        else if (x>a(n_a)) thn
+            penalty=penalty+abs(x)**3
+            tempx=a(n_a)
         end if
         do i=1,n_z
             do j=1,n_s
@@ -400,25 +482,6 @@ contains
                     print *,y2(i,currentAggCapital,j,:)
                     stop 0
                 end if
-
-                if(interpolated(i,j)>10D50)then
-                    print *,"interpolated value in value function is too high"
-                    print *,i,j,x
-                    print *,a
-                    print *,v(i,currentAggCapital,j,:)
-                    print *,y2(i,currentAggCapital,j,:)
-                    stop 0
-                end if
-
-                if(interpolated(i,j)<-10D50)then
-                    print *,"interpolated value in value function is too low"
-                    print *,i,j,x
-                    print *,a
-                    print *,v(i,currentAggCapital,j,:)
-                    print *,y2(i,currentAggCapital,j,:)
-                    stop 0
-                end if
-
             end do
         end do
         rp=0.0D0
@@ -430,20 +493,10 @@ contains
         temp = a(currentCapital)*(1+r(currentAggState,currentAggCapital)-delta)+&
             s(currentState)*w(currentAggState,currentAggCapital)-tempx
         if(temp < eps) then
-            penalty=(10.0_dp-temp)**2
+            penalty=penalty+abs(temp)**3
             temp=eps
         end if
         z=-(log(temp)+beta*rp-penalty)
-        if(z<-10D50)then
-            print *,"value function too low"
-            print *,temp,beta,rp
-            stop 0
-        end if
-        if(z>10D50)then
-            print *,"value function too high"
-            print *,temp,beta,rp
-            stop 0
-        end if
         if(isNaN(z))then
             print *, "value function is NaN"
             print *,temp,beta,rp
@@ -463,9 +516,9 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  sigma=.4D0
     integer, parameter                  ::  n_a=501
     integer                             :: myseed = 45678
-    integer, parameter                  :: periodsForConv = 5001
+    integer, parameter                  :: periodsForConv = 10001
     integer, parameter                  :: periodsToCut = 1000
-    integer, parameter                  :: numHouseholds = 10000
+    integer, parameter                  :: numHouseholds = 25000
 
     !******************
     ! These are here because of screwey splines
@@ -526,15 +579,15 @@ contains
         capShare=capitalShare
         deriv1Func => d1Func
         deriv2Func => d2Func
-if(.not.associated(capitalFunc))then
-print *,"capital func in setParams is null."
-stop 0
-end if
+        if(.not.associated(capitalFunc))then
+            print *,"capital func in setParams is null."
+            stop 0
+        end if
         capitalCalc => capitalFunc
-if(.not.associated(capitalCalc,target=capitalFunc))then
-print *,"capitalCalc in setParams is null."
-stop 0
-end if
+        if(.not.associated(capitalCalc,target=capitalFunc))then
+            print *,"capitalCalc in setParams is null."
+            stop 0
+        end if
 
         reportNum = 500
 
@@ -742,12 +795,19 @@ end if
         !actually, precomputed
         !Note: phi(i,j,k): i=2 is good shocks, i=1 is bad shocks
         !                  j=1 is param for constant, j=2 is param for log
+#if 0
         phi(2,1,1)= 0.136D0
         phi(2,2,1)= 0.963D0
         phi(1,1,1)= 0.122D0
         phi(1,2,1)= 0.966D0
-!        phi(:,1,1)=log(aggK(1))
-!        phi(:,2,1)=0.0D0
+#endif
+        phi(2,1,1)=  0.1809799408218253D0
+        phi(2,2,1)= 0.8829810675716563D0
+        phi(1,1,1)= 0.06883488668175014D0
+        phi(1,2,1)= 0.9521404231600628D0
+
+        !        phi(:,1,1)=log(aggK(1))
+        !        phi(:,2,1)=0.0D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -768,13 +828,7 @@ end if
             ! do this each time, since previous value functions are probably
             ! garbage
             v=0D0
-
-            if (lastStateVSet .and. (mod(iter,10) .ne. 0))then
-               v(:,:,:,:,1)=lastStateV
-            else
-               forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
-            end if
-               forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2
+            forall(i=1:n_z,j=1:n_k,ii=1:n_s) v(i,j,ii,:,1)=(a-a_min)**2+k(j)-k_min
             g=0D0
 
             call wrapperCreate(n_s,n_z,n_k,a,transition,s,beta,rFixed,wFixed, delta)
@@ -982,7 +1036,6 @@ end if
         INTEGER                             :: i,it,j,iter,aggK,ii
         REAL(DP)                            :: tempD,tempD2,lastErr
         REAL(DP), dimension(n_z,n_k,n_s,n_a)    :: y2
-        REAL(DP)                            :: kr1,kr2,kr3
         real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY,tempG, tempV2
         REAL(DP),dimension(n_z,n_k) :: kprime
         LOGICAL :: exitLoop
@@ -1096,23 +1149,10 @@ end if
                 do j=1,n_s
                     do aggK = 1,n_k
                         do i=1,n_z
-                            kr1=a(1)
-                            kr3=min(a(it)*(1+rFixed(i,aggK)-delta)+s(j)*wFixed(i,aggK),a(n_a))
-                            kr2=(kr1+kr3)/2D0
-                            tempV2(i,aggK,j,it)=-callBrent(i,aggK,j,it,funcParam,kr1,kr2,kr3,toll,tempG(i,aggK,j,it))
+                            tempV2(i,aggK,j,it)=-callBrent(i,aggK,j,it,funcParam,toll,tempG(i,aggK,j,it))
                             if(isNAN(tempV2(i,aggK,j,it)))then
                                 print *,"error, value function is nan"
                                 print *,i,j,it
-                                print *,kr1,kr2,kr3
-                                flush(6)
-                                stop 0
-                            end if
-                            if(tempV2(i,aggK,j,it)<-10D50)then
-                                print *,"error, value function is too low"
-                                print *,i,j,it
-                                print *,kr1,kr2,kr3
-                                print *,v(i,aggK,j,it,1),tempV2(i,aggK,j,it)
-                                print *,s(j)
                                 flush(6)
                                 stop 0
                             end if
@@ -1147,10 +1187,10 @@ end if
             !sometimes we get stuck and cycle between two points. Eventually the
             !differences converge, but to some large number. Let's do a test
             !of the second derivative (ie how quickly is the difference changing)
-            !if the difference between two iterations is less than the tolerance,
-            !its going to take a LONG time to converge (or may not). So let's just
+            !if the difference between two iterations is less than the .001%,
+            !its going to take a LONG time to converge (or may even not converge). So let's just
             !kill it
-            if(abs(lastErr-tempD) .lt. toll) then
+            if(abs(lastErr-tempD)/tempD .lt. 1.0e-5) then
 #ifdef DOPRINTS
                 print*,"not converging. done: ",iter
                 flush(6)
@@ -1208,9 +1248,9 @@ end if
         !z(i) is the shock received in period i
         z(1)=1
 
+        !set states for all future periods
         do i=2,periodsForConv+periodsToCut
             num(1)=rand(0)
-            flush(6)
             z(i)=1
             do j=1,n_z-1
                 if(num(1)>sum(zTransition(z(i-1),1:j)))then
@@ -1370,32 +1410,32 @@ program main
     flush(6)
 contains
     function production(capital,labour,shock) RESULT(y)
-    use nrtype
-    implicit none
+        use nrtype
+        implicit none
         REAL(DP), INTENT(IN) :: capital, labour,shock
         REAL(DP) :: y
         y=shock*capital**capitalShare*labour**(1-capitalShare)
     end function production
 
     function d1prod(capital,labour,shock) RESULT(y)
-    use nrtype
-    implicit none
+        use nrtype
+        implicit none
         REAL(DP), INTENT(IN) :: capital, labour,shock
         REAL(DP) :: y
         y=capitalShare*shock*capital**(capitalShare-1)*labour**(1-capitalShare)
     end function d1prod
 
     function d2prod(capital,labour,shock) RESULT(y)
-    use nrtype
-    implicit none
+        use nrtype
+        implicit none
         REAL(DP), INTENT(IN) :: capital, labour,shock
         REAL(DP) :: y
         y=(1-capitalShare)*shock*capital**capitalShare*labour**(-capitalShare)
     end function d2prod
 
     function impliedCapital(interest,labour,shock) RESULT(y)
-    use nrtype
-    implicit none
+        use nrtype
+        implicit none
         REAL(DP), INTENT(IN) :: interest, labour, shock
         REAL(DP) :: y
         y = interest/(capitalShare*shock)*&
