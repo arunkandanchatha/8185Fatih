@@ -465,7 +465,7 @@ module aiyagariSolve
     integer                             :: myseed = 45678
     integer, parameter                  :: periodsForConv = 5001
     integer, parameter                  :: periodsToCut = 1000
-    integer, parameter                  :: numHouseholds = 25000
+    integer, parameter                  :: numHouseholds = 10000
 
     !******************
     ! These are here because of screwey splines
@@ -473,9 +473,9 @@ module aiyagariSolve
     integer, parameter                  ::  bottomChop=0   !the number of first points we want to ignore
     integer, parameter                  ::  topChop=0       !the number of end points we want to ignore
 
-    REAL(DP), parameter                   ::  curv=2.0D0,a_min=0.001D0/numHouseholds, a_max=35.0D0
-    REAL(DP), parameter                   ::  k_min=1.0D0, k_max = 50.0D0
-    REAL(DP), parameter                   ::  beta=0.98, delta = 0.025D0
+    REAL(DP), parameter                   ::  curv=2.0D0,a_min=0.001D0/numHouseholds, a_max=100.0D0
+    REAL(DP), parameter                   ::  k_min=1.0D0, k_max = 100.0D0
+    REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0
     integer, parameter                  ::  maxit=2000
     REAL(DP),parameter                    ::  toll=1D-9,tol2=1D-9
     REAL(DP),parameter                    ::  lambda = 0.25 ! how much confidence in new value
@@ -742,12 +742,12 @@ end if
         !actually, precomputed
         !Note: phi(i,j,k): i=2 is good shocks, i=1 is bad shocks
         !                  j=1 is param for constant, j=2 is param for log
-!        phi(2,1,1)= 0.17623267724233646D0
-!        phi(2,2,1)= 0.885892948484075D0
-!        phi(1,1,1)= 0.07484747486480285D0
-!        phi(1,2,1)= 0.9487251273220929D0
-        phi(:,1,1)=log(aggK(1))
-        phi(:,2,1)=0.0D0
+        phi(2,1,1)= 0.136D0
+        phi(2,2,1)= 0.963D0
+        phi(1,1,1)= 0.122D0
+        phi(1,2,1)= 0.966D0
+!        phi(:,1,1)=log(aggK(1))
+!        phi(:,2,1)=0.0D0
         vals(1,:)=1.0D0
         vals(2,:)=log(aggK(1))
 
@@ -855,20 +855,20 @@ end if
             ssErr=0.0D0
             ssTot=0.0D0
             avgK = sum(aggKHistory(2:,2))/(periodsForConv-1)
+            open(unit=1,file="estimates1")
+            write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
+            write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
+            write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
+            do i=2,periodsForConv
+                ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
+                whichState=floor(aggKHistory(i-1,1))
+                predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
+                ssErr=ssErr+(aggKHistory(i,2)-exp(predicted))**2
+                write (1,*) i,",",whichState,",",exp(predicted),",",aggKHistory(i,2)
+            end do
+            close(1)
 
             if(rank == 0)then
-                open(unit=1,file="estimates1")
-                write (1,*) "period,state,predicted,actual, ,avgK,s,phi1,phi2"
-                write (1,*) " , , , , ,",avgK,",","1",phi(1,1,1),",",phi(1,2,1)
-                write (1,*) " , , , , ,",avgK,",","2",phi(2,1,1),",",phi(2,2,1)
-                do i=2,periodsForConv
-                    ssTot=ssTot+(aggKHistory(i,2)-avgK)**2
-                    whichState=floor(aggKHistory(i-1,1))
-                    predicted = phi(whichState,1,1)+phi(whichState,2,1)*log(aggKHistory(i-1,2))
-                    ssErr=ssErr+(aggKHistory(i,2)-exp(predicted))**2
-                    write (1,*) i,",",whichState,",",exp(predicted),",",aggKHistory(i,2)
-                end do
-                close(1)
                 print *,"R-squared: ",1.0D0-ssErr/ssTot
             end if
 
@@ -980,7 +980,7 @@ end if
         LOGICAL                             :: inSS2
 
         INTEGER                             :: i,it,j,iter,aggK,ii
-        REAL(DP)                            :: tempD,tempD2
+        REAL(DP)                            :: tempD,tempD2,lastErr
         REAL(DP), dimension(n_z,n_k,n_s,n_a)    :: y2
         REAL(DP)                            :: kr1,kr2,kr3
         real(DP),dimension(n_z,n_k,n_s,n_a) :: tempV,tempY,tempG, tempV2
@@ -1039,6 +1039,8 @@ end if
         ! we begin the iteration
         !**************************************************************************
         exitLoop = .false.
+        lastErr=10
+
         do iter=1,maxit
             if(exitLoop)then
                 exit
@@ -1133,13 +1135,31 @@ end if
                 end if
             end if
 
-            if (maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1))) .lt. toll) then
+            tempD=maxval(abs(v(:,:,:,:,2)-v(:,:,:,:,1)))
+            if (tempD .lt. toll) then
 #ifdef DOPRINTS
                 print*,"done: ",iter
                 flush(6)
 #endif
                 exitLoop = .true.
             end if
+
+            !sometimes we get stuck and cycle between two points. Eventually the
+            !differences converge, but to some large number. Let's do a test
+            !of the second derivative (ie how quickly is the difference changing)
+            !if the difference between two iterations is less than the tolerance,
+            !its going to take a LONG time to converge (or may not). So let's just
+            !kill it
+            if(abs(lastErr-tempD) .lt. toll) then
+#ifdef DOPRINTS
+                print*,"not converging. done: ",iter
+                flush(6)
+#endif
+                exitLoop = .true.
+            else
+                lastErr = tempD
+            end if
+
             v(:,:,:,:,1)=v(:,:,:,:,2)
         end do
 
