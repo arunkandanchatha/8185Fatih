@@ -5,13 +5,13 @@
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="photran.managedbuild.config.gnu.fortran.win32.exe.debug.78451320" moduleId="org.eclipse.cdt.core.settings" name="Debug">
 				<externalSettings/>
 				<extensions>
-					<extension id="org.eclipse.cdt.core.PE" point="org.eclipse.cdt.core.BinaryParser"/>
 					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.photran.core.GFortranErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.PE" point="org.eclipse.cdt.core.BinaryParser"/>
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
@@ -24,7 +24,7 @@
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.205227081" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.debug.1610490537" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.debug">
-								<option id="gnu.fortran.compiler.option.misc.other.1196438518" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fopenmp" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.misc.other.1196438518" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all" valueType="string"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.1780240491" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.debug.162315542" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.debug">
@@ -47,13 +47,13 @@
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="photran.managedbuild.config.gnu.fortran.win32.exe.release.1835615870" moduleId="org.eclipse.cdt.core.settings" name="Release">
 				<externalSettings/>
 				<extensions>
-					<extension id="org.eclipse.cdt.core.PE" point="org.eclipse.cdt.core.BinaryParser"/>
 					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.photran.core.GFortranErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.PE" point="org.eclipse.cdt.core.BinaryParser"/>
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
@@ -66,8 +66,8 @@
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1153606118" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release.1233793159" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release">
-								<option id="gnu.fortran.compiler.option.misc.other.80207891" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp" valueType="string"/>
-								<option id="gnu.fortran.compiler.option.warnings.toerrors.51213693" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="true" valueType="boolean"/>
+								<option id="gnu.fortran.compiler.option.misc.other.80207891" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.warnings.toerrors.51213693" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="false" valueType="boolean"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.570762472" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release.615807278" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release">
@@ -95,13 +95,13 @@
 			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="photran.managedbuild.config.gnu.fortran.win32.exe.release.1835615870.217291774" moduleId="org.eclipse.cdt.core.settings" name="mpi">
 				<externalSettings/>
 				<extensions>
-					<extension id="org.eclipse.cdt.core.PE" point="org.eclipse.cdt.core.BinaryParser"/>
 					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.photran.core.GFortranErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
 					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.PE" point="org.eclipse.cdt.core.BinaryParser"/>
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
@@ -114,8 +114,8 @@
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1571739167" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool command="mpif90" id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release.213457066" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release">
-								<option id="gnu.fortran.compiler.option.misc.other.1185085452" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp" valueType="string"/>
-								<option id="gnu.fortran.compiler.option.warnings.toerrors.697306609" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="true" valueType="boolean"/>
+								<option id="gnu.fortran.compiler.option.misc.other.1185085452" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.warnings.toerrors.697306609" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="false" valueType="boolean"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.313174007" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
 							<tool command="mpif90" id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release.1553804052" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release">
@@ -151,6 +151,7 @@
 		<configuration configurationName="Release">
 			<resource resourceType="PROJECT" workspacePath="/hw4q2"/>
 		</configuration>
+		<configuration configurationName="mpi"/>
 		<configuration configurationName="Debug">
 			<resource resourceType="PROJECT" workspacePath="/hw4q2"/>
 		</configuration>

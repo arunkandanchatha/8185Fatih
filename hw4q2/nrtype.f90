@@ -38,7 +38,7 @@ MODULE nrtype
         END FUNCTION template_function
     END INTERFACE
     ABSTRACT INTERFACE
-        FUNCTION template_function2(point1, point2, point3) RESULT(z)
+        PURE FUNCTION template_function2(point1, point2, point3) RESULT(z)
             !
             ! the function we are trying to minimize
             ! INPUTS: point1, point2 - the value at which we are evaluating the function
