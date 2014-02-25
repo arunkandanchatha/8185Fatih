@@ -25,8 +25,9 @@ module aiyagariSolve
     REAL(DP), dimension(n_z,n_s)   ::  ssEmployment
     REAL(DP), dimension(n_z,n_s,n_z,n_s)  ::  transition
     REAL(DP), dimension(n_a)              ::  a
-    TYPE(household), dimension(numHouseholds)  ::  ssDistrib
     REAL(DP),dimension(n_z,2,2) :: phi
+    TYPE(household), dimension(:,:), allocatable  ::  ssDistrib
+    integer, dimension(periodsForConv) :: z
 
     PROCEDURE(template_function), POINTER :: funcParam
     PROCEDURE(template_function2), POINTER :: deriv1Func, deriv2Func
@@ -59,13 +60,11 @@ contains
         distribOutput = file2
     end subroutine setParams
 
-
     subroutine myshocks()
-        integer i,j
+        integer i,j,ii
         REAL(DP), dimension(n_z,n_z) :: ztransition
-        REAL, dimension(numHouseholds, periodsForConv) :: harvest
+        REAL, dimension(periodsForConv, numHouseholds) :: harvest
         REAL, dimension(periodsForConv) :: aggShocks
-        integer, dimension(periodsForConv) :: z
 
         zTransition(1,1) = transition(1,1,1,1)+transition(1,1,1,2)
         zTransition(1,2) = 1-ztransition(1,1)
@@ -73,11 +72,19 @@ contains
         zTransition(2,1) = 1-ztransition(2,2)
 
         call srand(myseed)
-        do j=1,periodsForConv
-            aggShocks(j) = rand(0)
-            do i=1,numHouseholds
+        do j=1,numHouseholds
+            do i=1,periodsForConv
+                if(j==1)then
+                    aggShocks(i) = rand(0)
+                end if
                 harvest(i,j) = rand(0)
             end do
+        end do
+
+        do i=1,numHouseholds
+            if(harvest(1,i) < ssEmployment(1,1)) then
+                ssDistrib(1,i)%employmentState = 1
+            end if
         end do
 
         !z(i) is the shock received in period i
@@ -95,6 +102,19 @@ contains
             end do
         end do
 
+        ! set employment for each household in each period
+        do ii=1,numHouseholds
+            do j=2,periodsForConv
+                ssDistrib(j,ii)%employmentState=1
+                do i=1,n_s-1
+                    if(harvest(j,ii)>sum(transition(z(j-1),ssDistrib(j-1,ii)%employmentState,z(j),1:i)))then
+                        ssDistrib(j,ii)%employmentState=i+1
+                    else
+                        exit
+                    end if
+                end do
+            end do
+        end do
     end subroutine myshocks
 
     subroutine beginKrusellSmith()
@@ -110,9 +130,17 @@ contains
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: a2prime_be,cprime_be,muprime_be
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: a2prime_gu,cprime_gu,muprime_gu
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: a2prime_ge,cprime_ge,muprime_ge
+        REAL(DP),dimension(n_a,1,1,1) :: a2prime2_xu, a2prime2_xe, temp1, temp2
+        REAL(DP),dimension(n_a,n_s) :: aprimet
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: expec, cn, aprimen, c
-        REAL(DP),dimension(n_a) :: across
+        REAL(DP),dimension(numHouseholds,1,1,1) :: temp1a
+        REAL(DP),dimension(n_s,1,1,1) :: temp2a
+        REAL(DP),dimension(numHouseholds) :: across
+        REAL(DP),dimension(numHouseholds,1,1,1) :: acrossn
         REAL(DP),dimension(n_s) :: s
+        REAL(DP),dimension(periodsForConv) :: kmts
+
+        allocate(ssDistrib(periodsForConv,numHouseholds))
 
         !**************************************************************************
         ! We set up the grid of asset values based on the curvature, curv
@@ -242,10 +270,10 @@ contains
             iter2=1
             do while ((diff_a>criter_a) .and. (iter2<maxit))
                 iter2 = iter2+1
-                a2prime_bu=interpolate(a,k,aprime(:,:,1,1),aprime,kprime)
-                a2prime_be=interpolate(a,k,aprime(:,:,1,2),aprime,kprime)
-                a2prime_gu=interpolate(a,k,aprime(:,:,2,1),aprime,kprime)
-                a2prime_ge=interpolate(a,k,aprime(:,:,2,2),aprime,kprime)
+                a2prime_bu=interpolate(n_a,a,n_k,k,aprime(:,:,1,1),n_a,n_k,n_z,n_s,aprime,kprime)
+                a2prime_be=interpolate(n_a,a,n_k,k,aprime(:,:,1,2),n_a,n_k,n_z,n_s,aprime,kprime)
+                a2prime_gu=interpolate(n_a,a,n_k,k,aprime(:,:,2,1),n_a,n_k,n_z,n_s,aprime,kprime)
+                a2prime_ge=interpolate(n_a,a,n_k,k,aprime(:,:,2,2),n_a,n_k,n_z,n_s,aprime,kprime)
                 forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
                     cprime_bu(i,j,ii,jj) = max(irate_b(i,j,ii,jj)*aprime(i,j,ii,jj)+&
                         mu*wagerate_b(i,j,ii,jj)+(1-delta)*aprime(i,j,ii,jj)-&
@@ -289,35 +317,66 @@ contains
 
                 aprime = update_a*aprimen + (1-update_a)*aprime
             end do
-
             c=wealth-kprime
-            !aggregate stuff
 
+            !aggregate stuff
+            do iter2=1,periodsForConv
+                kmts(iter2) = sum(across)/numHouseholds
+                kmts(iter2) = min(max(kmts(iter2),k_min),k_max)
+
+                temp1(:,1,1,1) = a
+                temp2(:,1,1,1) = kmts(iter2)
+
+                a2prime2_xu=interpolate(n_a,a,n_k,k,aprime(:,:,z(iter2),1),n_a,1,1,1,temp1,temp2)
+                a2prime2_xe=interpolate(n_a,a,n_k,k,aprime(:,:,z(iter2),2),n_a,1,1,1,temp1,temp2)
+
+                aprimet(:,1) = a2prime2_xu(:,1,1,1)
+                aprimet(:,2) = a2prime2_xe(:,1,1,1)
+
+                temp1a(:,1,1,1) = across
+                temp2a(:,1,1,1) = (/1.0D0,2.0D0/)
+                acrossn=interpolate(n_a,a,n_s,temp2a,aprimet,numHouseholds,1,1,1,temp1a,&
+                    DBLE(ssDistrib(iter2,:)%employmentState))
+
+                acrossn=min(max(acrossn,a_min),a_max)
+                across=acrossn(:,1,1,1)
+
+                if(mod(iter2,10)==0)then
+                    print *,iter2
+                end if
+            end do
 
             if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<criter_B)then
                 iterComplete = .true.
             end if
         end do
+
+        deallocate(ssDistrib)
+
     end subroutine beginKrusellSmith
 
-    function interpolate(dim1, dim2, fn, xpoints, ypoints) RESULT (interps)
-        REAL(DP), dimension(n_a), intent(IN) :: dim1
-        REAL(DP), dimension(n_k), intent(IN) :: dim2
-        REAL(DP), dimension(n_a,n_k), intent(IN) :: fn
-        REAL(DP), dimension(n_a,n_k,n_z,n_s), intent(IN) :: xpoints,ypoints
-        REAL(DP), dimension(n_a,n_k,n_z,n_s) :: interps
+    function interpolate(l1, dim1, l2, dim2, fn, s1, s2, s3, s4, xpoints, ypoints) RESULT (interps)
+        integer, intent(in) :: l1, l2, s1, s2, s3, s4
+        REAL(DP), dimension(l1), intent(IN) :: dim1
+        REAL(DP), dimension(l2), intent(IN) :: dim2
+        REAL(DP), dimension(l1,l2), intent(IN) :: fn
+        REAL(DP), dimension(s1,s2,s3,s4), intent(IN) :: xpoints,ypoints
+        REAL(DP), dimension(s1,s2,s3,s4) :: interps
 
-        integer,parameter :: n=n_a*n_k
-        REAL(DP), dimension(n) :: x, y, f, rsq
-        integer, dimension(n) :: lnext
+        integer :: n
+        REAL(DP), dimension(:), allocatable :: x, y, f, rsq
+        integer, dimension(:), allocatable :: lnext
         REAL(DP) :: xmin, ymin, dx, dy, rmax
-        integer, dimension(n,n) :: lcell
-        REAL(DP), dimension(5,n) :: a
+        integer, dimension(:,:), allocatable :: lcell
+        REAL(DP), dimension(:,:), allocatable :: a
 
         integer :: i,j, ii, jj, ier
 
-        do i = 1,n_a
-            do j = 1,n_k
+        n=l1*l2
+        allocate(x(n),y(n),f(n),rsq(n),lcell(n,n),a(5,n))
+
+        do i = 1,l1
+            do j = 1,l2
                 x((i-1)*n_k+j)=dim1(i)
                 y((i-1)*n_k+j)=dim2(j)
                 f((i-1)*n_k+j)=fn(i,j)
@@ -334,16 +393,19 @@ contains
             stop
         end if
 
-        do jj=1,n_s
-            do ii=1,n_z
-                do j=1,n_k
-                    do i=1,n_a
+        do jj=1,s4
+            do ii=1,s3
+                do j=1,s2
+                    do i=1,s1
                         interps(i,j,ii,jj) = qs2val ( xpoints(i,j,ii,jj), ypoints(i,j,ii,jj), n, x, y, f, 13, lcell, lnext, xmin, &
                             ymin, dx, dy, rmax, rsq, a )
                     end do
                 end do
             end do
         end do
+
+        deallocate(x,y,f,rsq,lcell,a)
+
     end function interpolate
 
 end module aiyagariSolve
