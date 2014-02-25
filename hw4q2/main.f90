@@ -59,6 +59,44 @@ contains
         distribOutput = file2
     end subroutine setParams
 
+
+    subroutine myshocks()
+        integer i,j
+        REAL(DP), dimension(n_z,n_z) :: ztransition
+        REAL, dimension(numHouseholds, periodsForConv) :: harvest
+        REAL, dimension(periodsForConv) :: aggShocks
+        integer, dimension(periodsForConv) :: z
+
+        zTransition(1,1) = transition(1,1,1,1)+transition(1,1,1,2)
+        zTransition(1,2) = 1-ztransition(1,1)
+        zTransition(2,2) = transition(2,2,2,1)+transition(2,2,2,2)
+        zTransition(2,1) = 1-ztransition(2,2)
+
+        call srand(myseed)
+        do j=1,periodsForConv
+            aggShocks(j) = rand(0)
+            do i=1,numHouseholds
+                harvest(i,j) = rand(0)
+            end do
+        end do
+
+        !z(i) is the shock received in period i
+        z(1)=1
+
+        !set states for all future periods
+        do i=2,periodsForConv
+            z(i)=1
+            do j=1,n_z-1
+                if(aggShocks(i-1)>sum(zTransition(z(i-1),1:j)))then
+                    z(i)=j+1
+                else
+                    exit
+                end if
+            end do
+        end do
+
+    end subroutine myshocks
+
     subroutine beginKrusellSmith()
         LOGICAL :: iterComplete
         INTEGER :: i,j,ii,jj,iter,iter2
@@ -128,6 +166,9 @@ contains
         transition(2,2,2,2) = 0.8506941D0
 
         ssEmployment=reshape((/0.1D0,0.04D0,0.90D0,0.96D0/),(/2,2/))
+
+        call myshocks()
+
         zShocks=(/0.99D0,1.01D0/)
         s=(/0.0D0,1.0D0/)
 
