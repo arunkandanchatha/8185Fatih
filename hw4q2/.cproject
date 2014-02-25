@@ -24,7 +24,7 @@
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.205227081" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.debug.1610490537" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.debug">
-								<option id="gnu.fortran.compiler.option.misc.other.1196438518" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.misc.other.1196438518" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all -ffree-line-length-0" valueType="string"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.1780240491" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.debug.162315542" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.debug">
@@ -66,7 +66,7 @@
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1153606118" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release.1233793159" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release">
-								<option id="gnu.fortran.compiler.option.misc.other.80207891" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.misc.other.80207891" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all -ffree-line-length-0" valueType="string"/>
 								<option id="gnu.fortran.compiler.option.warnings.toerrors.51213693" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="false" valueType="boolean"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.570762472" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
@@ -114,7 +114,7 @@
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.1571739167" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>
 							<tool command="mpif90" id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release.213457066" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release">
-								<option id="gnu.fortran.compiler.option.misc.other.1185085452" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all" valueType="string"/>
+								<option id="gnu.fortran.compiler.option.misc.other.1185085452" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -fcheck=all -ffree-line-length-0" valueType="string"/>
 								<option id="gnu.fortran.compiler.option.warnings.toerrors.697306609" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="false" valueType="boolean"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.313174007" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
