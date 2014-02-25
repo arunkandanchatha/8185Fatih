@@ -9,7 +9,7 @@ module aiyagariSolve
     integer, parameter                  :: myseed = 45678
     integer, parameter                  :: periodsForConv = 10001
     integer, parameter                  :: periodsToCut = 1000
-    integer, parameter                  :: numHouseholds = 25000
+    integer, parameter                  :: numHouseholds = 10000
     integer, parameter                  :: maxit = 500
 
     REAL(DP),parameter                   :: alpha=0.36
@@ -84,6 +84,8 @@ contains
         do i=1,numHouseholds
             if(harvest(1,i) < ssEmployment(1,1)) then
                 ssDistrib(1,i)%employmentState = 1
+            else
+                ssDistrib(1,i)%employmentState = 2
             end if
         end do
 
@@ -104,6 +106,7 @@ contains
 
         ! set employment for each household in each period
         do ii=1,numHouseholds
+            print *,ii
             do j=2,periodsForConv
                 ssDistrib(j,ii)%employmentState=1
                 do i=1,n_s-1
