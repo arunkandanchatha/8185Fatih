@@ -629,7 +629,8 @@ contains
 end module aiyagariSolve
 
 !**************************************************************************
-!
+! This code is essentially a copy of the Maliar and Maliar (2010) code but
+! written in fortran.
 !**************************************************************************
 program main
 
