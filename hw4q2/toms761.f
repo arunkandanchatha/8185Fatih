@@ -84,12 +84,12 @@
       INTEGER          IER,MD,NDP,NIP
 *     ..
 *     .. Array Arguments ..
-      REAL             WK(NDP,17),XD(NDP),XI(NIP),YD(NDP),YI(NIP),
+      REAL(kind=8)     WK(NDP,17),XD(NDP),XI(NIP),YD(NDP),YI(NIP),
      +                 ZD(NDP),ZI(NIP)
       INTEGER          IWK(NDP,39)
 *     ..
 *     .. Local Scalars ..
-      REAL             PDX,PDXX,PDXY,PDY,PDYY
+      REAL(kind=8)             PDX,PDXX,PDXY,PDY,PDYY
       INTEGER          I,IERT,IIP,J,K,L,LNEW,NDPPV,NIPI,NL,NT
 *     ..
 *     .. Local Arrays ..
@@ -178,7 +178,7 @@
    50 WRITE (*,FMT=9020) MD,NDP,NIP
       IER = 3
       RETURN
-   60 WRITE (*,FMT=9030)
+   60 WRITE (*,FMT=9030) IERT
       IER = 9
       RETURN
 * Format statement for error message
@@ -188,7 +188,7 @@
      +       '    MD =',I5,',  NDP =',I5,',  NDPPV =',I5,/)
  9020 FORMAT (' ',/,'*** SDBI3P Error 3: NIP = 0 or less',/,'    MD =',
      +       I5,',  NDP =',I5,',  NIP =',I5,/)
- 9030 FORMAT ('    Error detected in SDTRAN called by SDBI3P',/)
+ 9030 FORMAT ('   Error detected in SDTRAN called by SDBI3P. IERT=',I5/)
       END
 
 
@@ -280,16 +280,16 @@
       INTEGER          IER,MD,NDP,NXI,NYI
 *     ..
 *     .. Array Arguments ..
-      REAL             WK(NDP,17),XD(NDP),XI(NXI),YD(NDP),YI(NYI),
+      REAL(kind=8)     WK(NDP,17),XD(NDP),XI(NXI),YD(NDP),YI(NYI),
      +                 ZD(NDP),ZI(NXI,NYI)
       INTEGER          IWK(NDP,39)
 *     ..
 *     .. Local Scalars ..
-      REAL             PDX,PDXX,PDXY,PDY,PDYY
+      REAL(kind=8)             PDX,PDXX,PDXY,PDY,PDYY
       INTEGER          I,IERT,IIP,IXI,IYI,J,K,L,LNEW,NDPPV,NIPI,NL,NT
 *     ..
 *     .. Local Arrays ..
-      REAL             YII(NIPIMX)
+      REAL(kind=8)             YII(NIPIMX)
       INTEGER          ITLI(NIPIMX),KTLI(NIPIMX),LCC(1)
 *     ..
 *     .. External Subroutines ..
@@ -475,7 +475,7 @@
       INTEGER          IERT,NDP,NL,NT
 *     ..
 *     .. Array Arguments ..
-      REAL             XD(NDP),YD(NDP)
+      REAL(kind=8)             XD(NDP),YD(NDP)
       INTEGER          IPL(2,*),IPT(3,*),ITL(NDP),LEND(NDP),LIST(6,NDP),
      +                 LPTR(6,NDP),LTRI(12,NDP)
 *     ..
@@ -671,7 +671,7 @@
 *
 * Specification statements
 *     .. Parameters ..
-      REAL             HBRMN
+      REAL(kind=8)             HBRMN
       INTEGER          NRRTT
       PARAMETER        (HBRMN=0.10,NRRTT=5)
 *     ..
@@ -679,19 +679,19 @@
       INTEGER          NDP,NL,NT
 *     ..
 *     .. Array Arguments ..
-      REAL             XD(NDP),YD(NDP)
+      REAL(kind=8)             XD(NDP),YD(NDP)
       INTEGER          IPL(2,*),IPT(3,*),ITL(NDP)
 *     ..
 *     .. Local Scalars ..
-      REAL             DXA,DYA,HBR,U1,U2,U3,U4,V1,V2,V3,V4
+      REAL(kind=8)             DXA,DYA,HBR,U1,U2,U3,U4,V1,V2,V3,V4
       INTEGER          IL,IL0,IL00,IL1,ILP1,ILR1,IP1,IP2,IP3,IPL1,IPL2,
      +                 IREP,IT,IT0,ITP1,IV,IVP1,MODIF,NL0
 *     ..
 *     .. Intrinsic Functions ..
-      INTRINSIC        ABS,MOD,REAL
+      INTRINSIC        ABS,MOD,DBLE
 *     ..
 *     .. Statement Functions ..
-      REAL             DSQF,VPDT
+      REAL(kind=8)             DSQF,VPDT
 *     ..
 *     .. Statement Function definitions ..
       DSQF(U1,V1,U2,V2,U3,V3) = ((U2-U1)/U3)**2 + ((V2-V1)/V3)**2
@@ -723,8 +723,8 @@
           DXA = DXA + ABS(XD(IP1)-XD(IP2))
           DYA = DYA + ABS(YD(IP1)-YD(IP2))
    30 CONTINUE
-      DXA = DXA/REAL(NL)
-      DYA = DYA/REAL(NL)
+      DXA = DXA/DBLE(NL)
+      DYA = DYA/DBLE(NL)
 * Removes thin triangles that share line segments with the border
 * line.
       DO 140 IREP = 1,NRRTT
@@ -880,18 +880,18 @@
       INTEGER          NDP
 *     ..
 *     .. Array Arguments ..
-      REAL             CF3(9,NDP),CFL1(2,NDP),DSQ(NDP),PDD(5,NDP),
+      REAL(kind=8)     CF3(9,NDP),CFL1(2,NDP),DSQ(NDP),PDD(5,NDP),
      +                 XD(NDP),YD(NDP),ZD(NDP)
       INTEGER          IDSQ(NDP),IORD(NDP),IPC(9,NDP),NCP(NDP)
 *     ..
 *     .. Local Scalars ..
-      REAL             A01,A02,A03,A10,A11,A12,A20,A21,A30,ALPWT,ANPE,
+      REAL(kind=8)     A01,A02,A03,A10,A11,A12,A20,A21,A30,ALPWT,ANPE,
      +                 ANPEM1,SMWTF,SMWTI,WTF,WTI,X,Y,ZX,ZY
       INTEGER          IDP1,IDP2,IDPI,IDPPE1,IMN,IPE,IPE1,J,J1,J2,JJ,
      +                 JMN,K,NCP2,NCP2P1,NPE
 *     ..
 *     .. Local Arrays ..
-      REAL             AMPDPE(5),PDDIF(5),PDDII(5),PDPE(5,NPEMX),
+      REAL(kind=8)     AMPDPE(5),PDDIF(5),PDDII(5),PDPE(5,NPEMX),
      +                 PWT(NPEMX),RVWT(NPEMX),SSPDPE(5)
       INTEGER          IDPPE(NPEMX),IPCPE(10,NPEMX)
 *     ..
@@ -899,7 +899,7 @@
       EXTERNAL         SDCF3P,SDCLDP,SDLS1P
 *     ..
 *     .. Intrinsic Functions ..
-      INTRINSIC        EXP,REAL
+      INTRINSIC        EXP,DBLE
 *     ..
 * Calculation
 * Selects, at each of the data points, nine data points closest
@@ -1024,8 +1024,8 @@
 * Weighted values of partial derivatives.
 *
 * Calculates the probability weight.
-          ANPE = REAL(NPE)
-          ANPEM1 = REAL(NPE-1)
+          ANPE = DBLE(NPE)
+          ANPEM1 = DBLE(NPE-1)
           DO 190 K = 1,5
               AMPDPE(K) = 0.0
 *DELETED from Valtulina  SSPDPE(K) = 0.0
@@ -1148,11 +1148,11 @@
       INTEGER          NDP
 *     ..
 *     .. Array Arguments ..
-      REAL             DSQ(NDP),XD(NDP),YD(NDP)
+      REAL(kind=8)             DSQ(NDP),XD(NDP),YD(NDP)
       INTEGER          IDSQ(NDP),IPC(9,NDP)
 *     ..
 *     .. Local Scalars ..
-      REAL             DSQMN
+      REAL(kind=8)             DSQMN
       INTEGER          IDP,IDSQMN,JDP,JDPMN,JDSQMN,JIPC,JIPCMX
 *     ..
 *     .. Intrinsic Functions ..
@@ -1268,7 +1268,7 @@
 *
 * Specification statements
 *     .. Parameters ..
-      REAL             CNRMX
+      REAL(kind=8)             CNRMX
 *CHANGED from Valtulina : PARAMETER        (CNRMX=1.5E+04)
       PARAMETER        (CNRMX=3.5E+07)
       INTEGER          N1,N2,N3
@@ -1278,15 +1278,15 @@
       INTEGER          NDP
 *     ..
 *     .. Array Arguments ..
-      REAL             CF(9,NDP),XD(NDP),YD(NDP),ZD(NDP)
+      REAL(kind=8)     CF(9,NDP),XD(NDP),YD(NDP),ZD(NDP)
       INTEGER          IORD(NDP),IPC(9,NDP),NCP(NDP)
 *     ..
 *     .. Local Scalars ..
-      REAL             CN,DET,X,X1,X2,Y,Y1,Y2,Z1,Z2
+      REAL(kind=8)     CN,DET,X,X1,X2,Y,Y1,Y2,Z1,Z2
       INTEGER          I,IDP,IDPI,J
 *     ..
 *     .. Local Arrays ..
-      REAL             AA1(N1,N1),AA2(N2,N2),AA3(N3,N3),B(N3),CFI(N3),
+      REAL(kind=8)     AA1(N1,N1),AA2(N2,N2),AA3(N3,N3),B(N3),CFI(N3),
      +                 EE(N3,N3),ZZ(N3,N3)
       INTEGER          K(N3)
 *     ..
@@ -1294,7 +1294,7 @@
       EXTERNAL         SDLEQN
 *     ..
 *     .. Intrinsic Functions ..
-      INTRINSIC        REAL
+      INTRINSIC        DBLE
 *     ..
 * Main DO-loop with respect to the data point
       DO 60 IDP = 1,NDP
@@ -1328,7 +1328,7 @@
 * Stores the calculated results as the coefficients of the
 * third-degree polynomial when applicable.
           IF (DET.NE.0.0) THEN
-              IF (CN.LE.CNRMX*REAL(N3)) THEN
+              IF (CN.LE.CNRMX*DBLE(N3)) THEN
                   DO 30 J = 2,N3
                       CF(J-1,IDP) = CFI(J)
    30             CONTINUE
@@ -1360,7 +1360,7 @@
 * Stores the calculated results as the coefficients of the
 * second-degree polynomial when applicable.
           IF (DET.NE.0.0) THEN
-              IF (CN.LE.CNRMX*REAL(N2)) THEN
+              IF (CN.LE.CNRMX*DBLE(N2)) THEN
                   CF(1,IDP) = CFI(2)
                   CF(2,IDP) = CFI(3)
                   CF(4,IDP) = CFI(4)
@@ -1387,7 +1387,7 @@
 * Stores the calculated results as the coefficients of the
 * first-degree polynomial when applicable.
           IF (DET.NE.0.0) THEN
-              IF (CN.LE.CNRMX*REAL(N1)) THEN
+              IF (CN.LE.CNRMX*DBLE(N1)) THEN
                   CF(1,IDP) = CFI(2)
                   CF(4,IDP) = CFI(3)
                   NCP(IDP) = N1
@@ -1449,16 +1449,16 @@
 *
 * Specification statements
 *     .. Scalar Arguments ..
-      REAL             CN,DET
+      REAL(kind=8)             CN,DET
       INTEGER          N
 *     ..
 *     .. Array Arguments ..
-      REAL             AA(N,N),B(N),EE(N,N),X(N),ZZ(N,N)
+      REAL(kind=8)             AA(N,N),B(N),EE(N,N),X(N),ZZ(N,N)
       INTEGER          K(N)
 *     ..
 *     .. Local Scalars ..
-      REAL             AANORM, ASOM, ZSOM, ZZNORM
-      REAL             AAIIJ,AAIJIJ,AAIJMX,AAMX
+      REAL(kind=8)             AANORM, ASOM, ZSOM, ZZNORM
+      REAL(kind=8)             AAIIJ,AAIJIJ,AAIJMX,AAMX
       INTEGER          I,IJ,IJP1,IJR,J,JJ,JMX,KJMX
 *     ..
 *     .. Intrinsic Functions ..
@@ -1638,11 +1638,11 @@
       INTEGER          NDP
 *     ..
 *     .. Array Arguments ..
-      REAL             CFL1(2,NDP),XD(NDP),YD(NDP),ZD(NDP)
+      REAL(kind=8)     CFL1(2,NDP),XD(NDP),YD(NDP),ZD(NDP)
       INTEGER          IPC(9,NDP),NCP(NDP)
 *     ..
 *     .. Local Scalars ..
-      REAL             A11,A12,A22,AN,B1,B2,DLT,SX,SXX,SXY,SXZ,SY,SYY,
+      REAL(kind=8)     A11,A12,A22,AN,B1,B2,DLT,SX,SXX,SXY,SXZ,SY,SYY,
      +                 SYZ,SZ,X,X1,X2,Y,Y1,Y2,Z,Z1,Z2
       INTEGER          I,IDP,IDPI,NPLS
 *     ..
@@ -1763,18 +1763,18 @@
       INTEGER          NDP,NIP,NL,NT
 *     ..
 *     .. Array Arguments ..
-      REAL             XD(NDP),XI(NIP),YD(NDP),YI(NIP)
+      REAL(kind=8)     XD(NDP),XI(NIP),YD(NDP),YI(NIP)
       INTEGER          IPL(2,NL),IPT(3,NT),ITLI(NIP),KTLI(NIP)
 *     ..
 *     .. Local Scalars ..
-      REAL             U1,U2,U3,V1,V2,V3,X0,X1,X2,X3,Y0,Y1,Y2,Y3
+      REAL(kind=8)     U1,U2,U3,V1,V2,V3,X0,X1,X2,X3,Y0,Y1,Y2,Y3
       INTEGER          IIP,IL1,IL2,ILII,IP1,IP2,IP3,ITII,ITLIPV,KTLIPV
 *     ..
 *     .. Intrinsic Functions ..
       INTRINSIC        MOD
 *     ..
 *     .. Statement Functions ..
-      REAL             SPDT,VPDT
+      REAL(kind=8)     SPDT,VPDT
 *     ..
 *     .. Statement Function definitions ..
       SPDT(U1,V1,U2,V2,U3,V3) = (U1-U3)* (U2-U3) + (V1-V3)* (V2-V3)
@@ -1951,12 +1951,12 @@
       INTEGER          NDP,NIP,NL,NT
 *     ..
 *     .. Array Arguments ..
-      REAL             PDD(5,NDP),XD(NDP),XI(NIP),YD(NDP),YI(NIP),
+      REAL(kind=8)     PDD(5,NDP),XD(NDP),XI(NIP),YD(NDP),YI(NIP),
      +                 ZD(NDP),ZI(NIP)
       INTEGER          IPL(2,NL),IPT(3,NT),ITLI(NIP),KTLI(NIP)
 *     ..
 *     .. Local Scalars ..
-      REAL             A,AA,AB,ACT2,AD,ADBC,AP,B,BB,BC,BDT2,BP,C,CC,CD,
+      REAL(kind=8)     A,AA,AB,ACT2,AD,ADBC,AP,B,BB,BC,BDT2,BP,C,CC,CD,
      +                 CP,D,DD,DLT,DP,DX,DY,E1,E2,G1,G2,H1,H2,H3,LUSQ,
      +                 LVSQ,P0,P00,P01,P02,P03,P04,P05,P1,P10,P11,P12,
      +                 P13,P14,P2,P20,P21,P22,P23,P3,P30,P31,P32,P4,P40,
@@ -1965,7 +1965,7 @@
       INTEGER          I,IDP,IIP,ILI,IR,ITLII,ITLIPV,K,KTLII,KTLIPV
 *     ..
 *     .. Local Arrays ..
-      REAL             PD(5,3),X(3),Y(3),Z(3),ZU(3),ZUU(3),ZUV(3),ZV(3),
+      REAL(kind=8)     PD(5,3),X(3),Y(3),Z(3),ZU(3),ZUU(3),ZUV(3),ZV(3),
      +                 ZVV(3)
 *     ..
 *     .. Intrinsic Functions ..
@@ -2418,7 +2418,7 @@ C
 *
 * SRFPACK modules required by GRADC:  GIVENS, ROTATE, SETRO3
 *
-* Intrinsic functions called by GRADC:  ABS, MIN, REAL, SQRT
+* Intrinsic functions called by GRADC:  ABS, MIN, REAL(kind=8), SQRT
 *
 ************************************************************
 *
@@ -2427,27 +2427,27 @@ C
       PARAMETER        (LMN=14,LMX=30)
 *     ..
 *     .. Scalar Arguments ..
-      REAL             DX,DXX,DXY,DY,DYY
+      REAL(kind=8)             DX,DXX,DXY,DY,DYY
       INTEGER          IER,K,N,NCC
 *     ..
 *     .. Array Arguments ..
-      REAL             X(N),Y(N),Z(N)
+      REAL(kind=8)             X(N),Y(N),Z(N)
       INTEGER          LCC(*),LEND(N),LIST(*),LPTR(*)
 *     ..
 *     .. Local Scalars ..
-      REAL             C,DMIN,DS,DTOL,RIN,RS,RTOL,S,SF,SFC,SFS,STF,SUM,
+      REAL(kind=8)     C,DMIN,DS,DTOL,RIN,RS,RTOL,S,SF,SFC,SFS,STF,SUM,
      +                 W,XK,YK,ZK
       INTEGER          I,IERR,J,JP1,KK,L,LM1,LMAX,LMIN,LNP,NP
 *     ..
 *     .. Local Arrays ..
-      REAL             A(10,10),DIST(LMX)
+      REAL(kind=8)             A(10,10),DIST(LMX)
       INTEGER          NPTS(LMX)
 *     ..
 *     .. External Subroutines ..
       EXTERNAL         GETNP,GIVENS,ROTATE,SETRO3
 *     ..
 *     .. Intrinsic Functions ..
-      INTRINSIC        ABS,MIN,REAL,SQRT
+      INTRINSIC        ABS,MIN,DBLE,SQRT
 *     ..
 *     .. Data statements ..
       DATA             RTOL/1.E-5/,DTOL/.01/
@@ -2566,7 +2566,7 @@ C
 * There are LNP-2 equations corresponding to nodes NPTS(2),
 *   ...,NPTS(LNP-1).
 *
-   40 SFS = REAL(LNP-2)/SUM
+   40 SFS = DBLE(LNP-2)/SUM
       SF = SQRT(SFS)
       SFC = SF*SFS
       RIN = 1./SQRT(RS)
@@ -2747,10 +2747,10 @@ C
 * U,V =   Variables used to scale A and B for computing R
 *
 *     .. Scalar Arguments ..
-      REAL             A,B,C,S
+      REAL(kind=8)             A,B,C,S
 *     ..
 *     .. Local Scalars ..
-      REAL             AA,BB,R,U,V
+      REAL(kind=8)             AA,BB,R,U,V
 *     ..
 *     .. Intrinsic Functions ..
       INTRINSIC        ABS,SQRT
@@ -2843,14 +2843,14 @@ C
 *
 *
 *     .. Scalar Arguments ..
-      REAL             C,S
+      REAL(kind=8)             C,S
       INTEGER          N
 *     ..
 *     .. Array Arguments ..
-      REAL             X(N),Y(N)
+      REAL(kind=8)             X(N),Y(N)
 *     ..
 *     .. Local Scalars ..
-      REAL             XI,YI
+      REAL(kind=8)             XI,YI
       INTEGER          I
 *     ..
       DO 10 I = 1,N
@@ -2907,13 +2907,13 @@ C
 *
 *
 *     .. Scalar Arguments ..
-      REAL             S1,S2,S3,W,XI,XK,YI,YK,ZI,ZK
+      REAL(kind=8)             S1,S2,S3,W,XI,XK,YI,YK,ZI,ZK
 *     ..
 *     .. Array Arguments ..
-      REAL             ROW(10)
+      REAL(kind=8)             ROW(10)
 *     ..
 *     .. Local Scalars ..
-      REAL             DX,DY,W1,W2,W3
+      REAL(kind=8)             DX,DY,W1,W2,W3
 *     ..
       DX = XI - XK
       DY = YI - YK
@@ -2937,7 +2937,7 @@ C
      .                   LEND, IER)
       INTEGER NCC, LCC(*), N, LWK, IWK(LWK), LIST(*),
      .        LPTR(*), LEND(N), IER
-      REAL    X(N), Y(N)
+      REAL(kind=8)    X(N), Y(N)
 C
 C***********************************************************
 C
@@ -3178,7 +3178,7 @@ C
      .                   LPTR,LEND,LNEW, IER)
       INTEGER K, IST, NCC, LCC(*), N, LIST(*), LPTR(*),
      .        LEND(*), LNEW, IER
-      REAL    XK, YK, X(*), Y(*)
+      REAL(kind=8)    XK, YK, X(*), Y(*)
 C
 C***********************************************************
 C
@@ -3440,9 +3440,9 @@ C
    10 IER = -3
       RETURN
       END
-      REAL FUNCTION AREAP (X,Y,NB,NODES)
+      REAL(kind=8) FUNCTION AREAP (X,Y,NB,NODES)
       INTEGER NB, NODES(NB)
-      REAL    X(*), Y(*)
+      REAL(kind=8)    X(*), Y(*)
 C
 C***********************************************************
 C
@@ -3491,7 +3491,7 @@ C
 C***********************************************************
 C
       INTEGER I, ND1, ND2, NNB
-      REAL    A
+      REAL(kind=8)    A
 C
 C Local parameters:
 C
@@ -3705,7 +3705,7 @@ C
       SUBROUTINE CIRCUM (X1,Y1,X2,Y2,X3,Y3,RATIO, XC,YC,CR,
      .                   SA,AR)
       LOGICAL RATIO
-      REAL    X1, Y1, X2, Y2, X3, Y3, XC, YC, CR, SA, AR
+      REAL(kind=8)    X1, Y1, X2, Y2, X3, Y3, XC, YC, CR, SA, AR
 C
 C***********************************************************
 C
@@ -3762,7 +3762,7 @@ C
 C***********************************************************
 C
       INTEGER I
-      REAL    DS(3), FX, FY, U(3), V(3)
+      REAL(kind=8)    DS(3), FX, FY, U(3), V(3)
 C
 C Set U(K) and V(K) to the x and y components, respectively,
 C   of the directed edge opposite vertex K.
@@ -4145,7 +4145,7 @@ C
      .                   LNEW,LWK,IWK, IER)
       INTEGER K, NCC, LCC(*), N, LIST(*), LPTR(*),
      .        LEND(*), LNEW, LWK, IWK(2,*), IER
-      REAL    X(*), Y(*)
+      REAL(kind=8)    X(*), Y(*)
 C
 C***********************************************************
 C
@@ -4271,7 +4271,7 @@ C
      .        LPH, LPL, LPL2, LPN, LWKL, N1, N2, NFRST, NIT,
      .        NL, NN, NNB, NR
       LOGICAL BDRY
-      REAL    X1, X2, XL, XR, Y1, Y2, YL, YR
+      REAL(kind=8)    X1, X2, XL, XR, Y1, Y2, YL, YR
 C
 C Set N1 to K and NNB to the number of neighbors of N1 (plus
 C   one if N1 is a boundary node), and test for errors.  LPF
@@ -4526,7 +4526,7 @@ C
      .                 LEND, IER)
       INTEGER IN1, IN2, LWK, IWK(2,*), LIST(*), LPTR(*),
      .        LEND(*), IER
-      REAL    X(*), Y(*)
+      REAL(kind=8)    X(*), Y(*)
 C
 C***********************************************************
 C
@@ -4625,7 +4625,7 @@ C
       INTEGER I, IERR, IWC, IWCP1, IWEND, IWF, IWL, LFT, LP,
      .        LPL, LP21, NEXT, NIT, NL, NR, N0, N1, N2,
      .        N1FRST, N1LST
-      REAL    DX, DY, X0, Y0, X1, Y1, X2, Y2
+      REAL(kind=8)    DX, DY, X0, Y0, X1, Y1, X2, Y2
 C
 C Local parameters:
 C
@@ -5031,7 +5031,7 @@ C
      .                  L, NPTS,DS, IER)
       INTEGER NCC, LCC(*), N, LIST(*), LPTR(*), LEND(N),
      .        L, NPTS(L), IER
-      REAL    X(N), Y(N), DS(L)
+      REAL(kind=8)    X(N), Y(N), DS(L)
 C
 C***********************************************************
 C
@@ -5136,7 +5136,7 @@ C
      .        NKBAK, NKFOR, NL, NN
       LOGICAL ISW, VIS, NCF, NJF, SKIP, SKSAV, LFT1, LFT2,
      .        LFT12
-      REAL    DC, DL, X1, XC, XJ, XK, Y1, YC, YJ, YK
+      REAL(kind=8)    DC, DL, X1, XC, XJ, XK, Y1, YC, YJ, YK
 C
 C Store parameters in local variables and test for errors.
 C   LCC1 indexes the first constraint node.
@@ -5195,6 +5195,9 @@ C
         XK = X(NK)
         YK = Y(NK)
         LPKL = -LEND(NK)
+C        IF (LPKL .EQ. 0) THEN
+           print *,K,NK,XK,YK
+C        ENDIF
         NKFOR = 0
         NKBAK = 0
         VIS = .TRUE.
@@ -5614,7 +5617,7 @@ C
       RETURN
       END
       LOGICAL FUNCTION INTSEC (X1,Y1,X2,Y2,X3,Y3,X4,Y4)
-      REAL X1, Y1, X2, Y2, X3, Y3, X4, Y4
+      REAL(kind=8) X1, Y1, X2, Y2, X3, Y3, X4, Y4
 C
 C***********************************************************
 C
@@ -5656,7 +5659,7 @@ C Modules required by INTSEC:  None
 C
 C***********************************************************
 C
-      REAL A, B, D, DX12, DX31, DX34, DY12, DY31, DY34
+      REAL(kind=8) A, B, D, DX12, DX31, DX34, DY12, DY31, DY34
 C
 C Test for overlap between the smallest rectangles that
 C   contain the line segments and have sides parallel to
@@ -5703,7 +5706,7 @@ C
       RETURN
       END
       LOGICAL FUNCTION LEFT (X1,Y1,X2,Y2,X0,Y0)
-      REAL    X1, Y1, X2, Y2, X0, Y0
+      REAL(kind=8)    X1, Y1, X2, Y2, X0, Y0
 C
 C***********************************************************
 C
@@ -5738,7 +5741,7 @@ C Modules required by LEFT:  None
 C
 C***********************************************************
 C
-      REAL DX1, DY1, DX2, DY2
+      REAL(kind=8) DX1, DY1, DX2, DY2
 C
 C Local parameters:
 C
@@ -5857,7 +5860,7 @@ C
       INTEGER FUNCTION NEARND (XP,YP,IST,N,X,Y,LIST,LPTR,
      .                         LEND, DSQ)
       INTEGER IST, N, LIST(*), LPTR(*), LEND(N)
-      REAL    XP, YP, X(N), Y(N), DSQ
+      REAL(kind=8)    XP, YP, X(N), Y(N), DSQ
 C
 C***********************************************************
 C
@@ -5922,7 +5925,7 @@ C
       PARAMETER (LMAX=25)
       INTEGER   I1, I2, I3, L, LISTP(LMAX), LP, LP1, LP2,
      .          LPL, LPTRP(LMAX), N1, N2, N3, NN, NR, NST
-      REAL      COS1, COS2, DS1, DSR, DX11, DX12, DX21,
+      REAL(kind=8)      COS1, COS2, DS1, DSR, DX11, DX12, DX21,
      .          DX22, DY11, DY12, DY21, DY22, SIN1, SIN2
 C
 C Store local parameters and test for N invalid.
@@ -6065,7 +6068,7 @@ C
       SUBROUTINE OPTIM (X,Y,NA, LIST,LPTR,LEND,NIT,IWK, IER)
       INTEGER NA, LIST(*), LPTR(*), LEND(*), NIT, IWK(2,NA),
      .        IER
-      REAL    X(*), Y(*)
+      REAL(kind=8)    X(*), Y(*)
 C
 C***********************************************************
 C
@@ -6232,7 +6235,7 @@ C
       END
       SUBROUTINE PERMUT (N,IP, A )
       INTEGER N, IP(N)
-      REAL    A(N)
+      REAL(kind=8)    A(N)
 C
 C***********************************************************
 C
@@ -6269,7 +6272,7 @@ C
 C***********************************************************
 C
       INTEGER NN, K, J, IPJ
-      REAL    TEMP
+      REAL(kind=8)    TEMP
 C
 C Local parameters:
 C
@@ -6316,7 +6319,7 @@ C
       END
       SUBROUTINE QSORT (N,X, IND)
       INTEGER N, IND(N)
-      REAL    X(N)
+      REAL(kind=8)    X(N)
 C
 C***********************************************************
 C
@@ -6367,7 +6370,7 @@ C             subroutine PERMUT.
 C
 C Modules required by QSORT:  None
 C
-C Intrinsic functions called by QSORT:  REAL, INT
+C Intrinsic functions called by QSORT:  REAL(kind=8), INT
 C
 C***********************************************************
 C
@@ -6378,7 +6381,7 @@ C***********************************************************
 C
       INTEGER IU(21), IL(21)
       INTEGER M, I, J, K, L, IJ, IT, ITT, INDX
-      REAL    R, T
+      REAL(kind=8)    R, T
 C
 C Local parameters:
 C
@@ -6420,7 +6423,7 @@ C
 C
 C Select a central element of X and save it in T.
 C
-      IJ = I + INT(R*REAL(J-I))
+      IJ = I + INT(R*DBLE(J-I))
       IT = IND(IJ)
       T = X(IT)
 C
@@ -6532,7 +6535,7 @@ C
       END
       SUBROUTINE REORDR (N,IFLAG, A,B,C, IND)
       INTEGER N, IFLAG, IND(N)
-      REAL    A(N), B(N), C(N)
+      REAL(kind=8)    A(N), B(N), C(N)
 C
 C***********************************************************
 C
@@ -6616,8 +6619,8 @@ C
       CALL PERMUT (NN,IND, C )
       RETURN
       END
-      REAL FUNCTION STORE (X)
-      REAL X
+      REAL(kind=8) FUNCTION STORE (X)
+      REAL(kind=8) X
 C
 C***********************************************************
 C
@@ -6651,7 +6654,7 @@ C Modules required by STORE:  None
 C
 C***********************************************************
 C
-      REAL Y
+      REAL(kind=8) Y
       COMMON/STCOM/Y
 C
       Y = X
@@ -6752,7 +6755,7 @@ C
       END
       LOGICAL FUNCTION SWPTST (IN1,IN2,IO1,IO2,X,Y)
       INTEGER IN1, IN2, IO1, IO2
-      REAL    X(*), Y(*)
+      REAL(kind=8)    X(*), Y(*)
 C
 C***********************************************************
 C
@@ -6808,7 +6811,7 @@ C Modules required by SWPTST:  None
 C
 C***********************************************************
 C
-      REAL DX11, DX12, DX22, DX21, DY11, DY12, DY22, DY21,
+      REAL(kind=8) DX11, DX12, DX22, DX21, DY11, DY12, DY22, DY21,
      .     SIN1, SIN2, COS1, COS2, SIN12, SWTOL
 C
 C Tolerance stored by TRMESH or TRMSHR.
@@ -6881,7 +6884,7 @@ C
       SUBROUTINE TRFIND (NST,PX,PY,X,Y,LIST,LPTR,LEND, I1,
      .                   I2,I3)
       INTEGER NST, LIST(*), LPTR(*), LEND(*), I1, I2, I3
-      REAL    PX, PY, X(*), Y(*)
+      REAL(kind=8)    PX, PY, X(*), Y(*)
 C
 C***********************************************************
 C
@@ -6944,7 +6947,7 @@ C
       LOGICAL LEFT
       INTEGER LP, N0, N1, N2, N3, N4, NB, NF, NL, NP, NPP
       LOGICAL FRWRD
-      REAL    XA, XB, XC, XP, YA, YB, YC, YP
+      REAL(kind=8)    XA, XB, XC, XP, YA, YB, YC, YP
 C
 C FRWRD = TRUE iff C is forward of A->B
 C              iff <A->B,A->C> .GE. 0.
@@ -7458,7 +7461,7 @@ C
      .                   PRNTX)
       INTEGER NCC, LCT(*), N, NROW, NT, LTRI(NROW,NT), LOUT
       LOGICAL PRNTX
-      REAL    X(N), Y(N)
+      REAL(kind=8)    X(N), Y(N)
 C
 C***********************************************************
 C
@@ -7629,7 +7632,7 @@ C
       END
       SUBROUTINE TRMESH (N,X,Y, LIST,LPTR,LEND,LNEW,IER)
       INTEGER N, LIST(*), LPTR(*), LEND(N), LNEW, IER
-      REAL    X(N), Y(N)
+      REAL(kind=8)    X(N), Y(N)
 C
 C***********************************************************
 C
@@ -7819,9 +7822,9 @@ C
 C***********************************************************
 C
       LOGICAL LEFT
-      REAL    STORE
+      REAL(kind=8)    STORE
       INTEGER K, KM1, LCC(1), NCC, NN
-      REAL    EPS, SWTOL
+      REAL(kind=8)    EPS, SWTOL
       COMMON/SWPCOM/SWTOL
 C
       NN = N
@@ -7923,7 +7926,7 @@ C
      .                   IER)
       INTEGER  N, NX, NIT, LIST(*), LPTR(*), LEND(N), LNEW,
      .         IER
-      REAL     X(N), Y(N)
+      REAL(kind=8)     X(N), Y(N)
 C
 C***********************************************************
 C
@@ -8032,12 +8035,12 @@ C***********************************************************
 C
       INTEGER LSTPTR, NBCNT
       LOGICAL LEFT, SWPTST
-      REAL    STORE
+      REAL(kind=8)    STORE
       INTEGER I, ITER, J, K, KP1, LP, LPF, LPK, LPL, LPP,
      .        M1, M2, M3, M4, MAXIT, N0, N1, N2, N3, N4, NI,
      .        NJ, NM1, NN, NNB
       LOGICAL TST
-      REAL    EPS, SWTOL
+      REAL(kind=8)    EPS, SWTOL
       COMMON/SWPCOM/SWTOL
 C
 C Store local variables and test for errors in input
@@ -8336,7 +8339,7 @@ C
       INTEGER NCC, LCC(*), N, LIST(*), LPTR(*), LEND(N),
      .        LOUT
       LOGICAL PRNTX
-      REAL    X(N), Y(N)
+      REAL(kind=8)    X(N), Y(N)
 C
 C***********************************************************
 C

@@ -5,19 +5,19 @@ module aiyagariSolve
     implicit none
 
     REAL(DP), parameter                   ::  sigma=.4D0
-    integer, parameter                  ::  n_a=200, n_z = 2, n_s = 2, n_k = 10
+    integer, parameter                  ::  n_a=200, n_z = 2, n_s = 2, n_k = 4
     integer, parameter                  :: myseed = 45678
-    integer, parameter                  :: periodsForConv = 4000
+    integer, parameter                  :: periodsForConv = 6000
     integer, parameter                  :: periodsToCut = 1000
     integer, parameter                  :: numHouseholds = 10000
-    integer, parameter                  :: maxit = 500
+    integer, parameter                  :: maxit = 2000
 
     REAL(DP),parameter                   :: alpha=0.36
-    REAL(DP), parameter                   ::  curv=2.0D0,a_min=0.001D0/numHouseholds, a_max=1000.0D0
-    REAL(DP), parameter                   ::  k_min=30.0D0, k_max = 50.0D0
-    REAL(DP), parameter                   ::  beta=0.90, delta = 0.025D0,c_gamma=1.0D0
-    REAL(DP),parameter                    ::  criter_a=1D-9,criter_B=1D-9
-    REAL(DP),parameter                  :: update_a = 0.7, update_B = 0.3
+    REAL(DP), parameter                   ::  curv=2.0D0,a_min=0.0D0, a_max=1000.0D0
+    REAL(DP), parameter                   ::  km_min=30.0D0, km_max = 50.0D0
+    REAL(DP), parameter                   ::  beta=0.99, delta = 0.025D0,c_gamma=1.0D0
+    REAL(DP),parameter                    ::  criter_a=1D-8,criter_B=1D-8
+    REAL(DP),parameter                  :: update_a = 0.7_dp, lambda = 0.3
     REAL(DP),parameter                    ::  mu = 0.15 !unemp benefits
 
     REAL(DP), dimension(n_z)              ::  zShocks
@@ -28,6 +28,7 @@ module aiyagariSolve
     REAL(DP),dimension(n_z,2,2) :: phi
     TYPE(household), dimension(:,:), allocatable  ::  ssDistrib
     integer, dimension(periodsForConv) :: z
+    REAL(DP)                   :: l_bar
 
     PROCEDURE(template_function), POINTER :: funcParam
     PROCEDURE(template_function2), POINTER :: deriv1Func, deriv2Func
@@ -71,19 +72,6 @@ contains
         zTransition(1,2) = 1-ztransition(1,1)
         zTransition(2,2) = transition(2,2,2,1)+transition(2,2,2,2)
         zTransition(2,1) = 1-ztransition(2,2)
-
-        !        call srand(myseed)
-        !    call CPU_TIME(st)
-        !        do j=1,numHouseholds
-        !            do i=1,periodsForConv
-        !                if(j==1)then
-        !                    aggShocks(i) = rand(0)
-        !                end if
-        !                harvest(i,j) = rand(0)
-        !            end do
-        !        end do
-        !    call CPU_TIME(et)
-        !    print *,et-st
 
         call random_seed(size = n)
         allocate(seed(n))
@@ -133,12 +121,12 @@ contains
 
     subroutine beginKrusellSmith()
         LOGICAL :: iterComplete
-        INTEGER :: i,j,ii,jj,iter,iter2
-        REAL(DP) :: diff_a, eps=epsilon(1.0_dp), kSS, incr, minc=0.0_dp
+        INTEGER :: i,j,ii,jj,iter,iter2, interChoice
+        REAL(DP) :: diff_a, eps=epsilon(1.0_dp), kSS, incr, minc=0.1_dp, diff_b
         PROCEDURE(template_function), POINTER :: func
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: aprime, prob_bu, prob_be, prob_gu, prob_ge
-        REAL(DP),dimension(n_a,n_k,n_z,n_s) :: aaux,kaux,aglabor,agshock_aux,idshock_aux
-        REAL(DP),dimension(n_a,n_k,n_z,n_s) :: irateaux,wageaux,wealth,kprime
+        REAL(DP),dimension(n_a,n_k,n_z,n_s) :: aaux,kmaux,aglabor,agshock_aux,idshock_aux
+        REAL(DP),dimension(n_a,n_k,n_z,n_s) :: irateaux,wageaux,wealth,kmprime
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: irate_b, irate_g, wagerate_b, wagerate_g
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: a2prime_bu,cprime_bu,muprime_bu
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: a2prime_be,cprime_be,muprime_be
@@ -149,10 +137,14 @@ contains
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: expec, cn, aprimen, c
         REAL(DP),dimension(numHouseholds,1,1,1) :: temp1a
         REAL(DP),dimension(n_s,1,1,1) :: temp2a
-        REAL(DP),dimension(numHouseholds) :: across
+        REAL(DP),dimension(numHouseholds) :: across, acrosstemp
         REAL(DP),dimension(numHouseholds,1,1,1) :: acrossn
         REAL(DP),dimension(n_s) :: s
         REAL(DP),dimension(periodsForConv) :: kmts
+        REAL(DP),dimension(:,:),allocatable :: goodShocks,badShocks
+        REAL(DP),dimension(2*periodsForConv*2) :: workArray
+
+        INTEGER, dimension(4) :: maxError
 
         allocate(ssDistrib(periodsForConv,numHouseholds))
 
@@ -160,17 +152,25 @@ contains
         ! We set up the grid of asset values based on the curvature, curv
         ! the minimum and maximum values in the grid a_min a_max
         !**************************************************************************
+#if 0
         incr=(a_max-a_min)/(n_a-1)
         a=(/ (    incr*real(i-1,8),i=1,n_a    ) /)
         a=a**curv
         a=a/(a_max-a_min)**(curv-1)+a_min
-
+#else
+        incr=DBLE(1.0_dp/(n_a-1.0_dp))
+        a=(/ (    incr*real(i-1,8),i=1,n_a    ) /)
+        a = a/2
+        a=(a**7)/maxval(a**7)
+        a=a_min+(a_max-a_min)*a
+#endif
         ! Set aggregate capital grid over which we want to evaluate, K
         ! curving this allows convergence. Without, it doesn't. Damn I hate splines!
-        incr=(k_max-k_min)/(n_k-1)
+        incr=(km_max-km_min)/(n_k-1)
         k=(/ (    incr*real(i-1,8),i=1,n_k    ) /)
-        k=k**curv
-        k=k/(k_max-k_min)**(curv-1)+k_min
+        !        k=k**curv
+        !        k=k/(km_max-km_min)**(curv-1)+km_min
+        k=k+km_min
 
         ! Initial capital function
         forall(i=1:n_z,j=1:n_k,ii=1:n_s) aprime(:,j,i,ii)=0.9*a
@@ -208,6 +208,7 @@ contains
         transition(2,2,2,2) = 0.8506941D0
 
         ssEmployment=reshape((/0.1D0,0.04D0,0.90D0,0.96D0/),(/2,2/))
+        l_bar = 1.0_dp/ssEmployment(1,2)
 
         call myshocks()
 
@@ -236,26 +237,27 @@ contains
         prob_ge(:,:,2,2)=transition(2,2,2,2)
 
         forall(i=1:n_z,j=1:n_k,ii=1:n_s) aaux(:,j,i,ii)=a
-        forall(i=1:n_z,j=1:n_a,ii=1:n_s) kaux(j,:,i,ii)=k
+        forall(i=1:n_z,j=1:n_a,ii=1:n_s) kmaux(j,:,i,ii)=k
         forall(i=1:n_a,j=1:n_k,ii=1:n_s) aglabor(i,j,1,ii)=ssEmployment(1,2)
         forall(i=1:n_a,j=1:n_k,ii=1:n_s) aglabor(i,j,2,ii)=ssEmployment(2,2)
         forall(i=1:n_a,j=1:n_k,ii=1:n_s) agshock_aux(i,j,1,ii)=zShocks(1)
         forall(i=1:n_a,j=1:n_k,ii=1:n_s) agshock_aux(i,j,2,ii)=zShocks(2)
-        forall(i=1:n_a,j=1:n_k,ii=1:n_s) idshock_aux(i,j,1,ii)=s(1)
-        forall(i=1:n_a,j=1:n_k,ii=1:n_s) idshock_aux(i,j,2,ii)=s(2)
+        forall(i=1:n_a,j=1:n_k,ii=1:n_z) idshock_aux(i,j,ii,1)=s(1)
+        forall(i=1:n_a,j=1:n_k,ii=1:n_z) idshock_aux(i,j,ii,2)=s(2)
 
         forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
-            irateaux(i,j,ii,jj)=deriv1Func(k(j),ssEmployment(jj,2)/0.9_dp,zShocks(ii))
+            irateaux(i,j,ii,jj)=deriv1Func(kmaux(i,j,ii,jj),ssEmployment(ii,2)*l_bar,zShocks(ii))
         end forall
         forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
-            wageaux(i,j,ii,jj)=deriv2Func(k(j),ssEmployment(jj,2)/0.9_dp,zShocks(ii))
+            wageaux(i,j,ii,jj)=deriv2Func(kmaux(i,j,ii,jj),ssEmployment(ii,2)*l_bar,zShocks(ii))
         end forall
         forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
-            wealth(i,j,ii,jj)=irateaux(i,j,ii,jj)*kaux(i,j,ii,jj) + &
-                wageaux(i,j,ii,jj)*idshock_aux(i,j,ii,jj)*0.9 + &
-                mu*wageaux(i,j,ii,jj)*(1_dp-idshock_aux(i,j,ii,jj))
+            wealth(i,j,ii,jj)=irateaux(i,j,ii,jj)*aaux(i,j,ii,jj) + &
+                wageaux(i,j,ii,jj)*idshock_aux(i,j,ii,jj)*l_bar + &
+                mu*wageaux(i,j,ii,jj)*(1.0_dp-idshock_aux(i,j,ii,jj)) + &
+                (1.0_dp-delta)*aaux(i,j,ii,jj)-&
+                mu*wageaux(i,j,ii,jj)*(1.0_dp-aglabor(i,j,ii,jj))/aglabor(i,j,ii,jj)*idshock_aux(i,j,ii,jj)
         end forall
-
 
         iter = 0
         iterComplete = .false.
@@ -264,44 +266,53 @@ contains
 
             !individual stuff
             forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
-                kprime(i,j,ii,jj) = exp(phi(ii,1,1)+phi(ii,2,1)*log(kaux(i,j,ii,jj)))
+                kmprime(i,j,ii,jj) = exp(phi(ii,1,1)+phi(ii,2,1)*log(kmaux(i,j,ii,jj)))
             end forall
 
-            kprime=min(max(k_min,kprime),k_max)
+            kmprime=min(max(km_min,kmprime),km_max)
 
             forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
-                irate_b(i,j,ii,jj)=deriv1Func(kprime(i,j,ii,jj),&
-                    ssEmployment(1,2)/0.9_dp,zShocks(1))
-                irate_g(i,j,ii,jj)=deriv1Func(kprime(i,j,ii,jj),&
-                    ssEmployment(2,2)/0.9_dp,zShocks(2))
-                wagerate_b(i,j,ii,jj)=deriv2Func(kprime(i,j,ii,jj),&
-                    ssEmployment(1,2)/0.9_dp,zShocks(1))
-                wagerate_g(i,j,ii,jj)=deriv2Func(kprime(i,j,ii,jj),&
-                    ssEmployment(2,2)/0.9_dp,zShocks(2))
+                irate_b(i,j,ii,jj)=deriv1Func(kmprime(i,j,ii,jj),&
+                    ssEmployment(1,2)*l_bar,zShocks(1))
+                irate_g(i,j,ii,jj)=deriv1Func(kmprime(i,j,ii,jj),&
+                    ssEmployment(2,2)*l_bar,zShocks(2))
+                wagerate_b(i,j,ii,jj)=deriv2Func(kmprime(i,j,ii,jj),&
+                    ssEmployment(1,2)*l_bar,zShocks(1))
+                wagerate_g(i,j,ii,jj)=deriv2Func(kmprime(i,j,ii,jj),&
+                    ssEmployment(2,2)*l_bar,zShocks(2))
             end forall
 
             diff_a=1
             iter2=1
+            print *,"Starting individual problem"
+            print *,"Iteration    diff                       location                                             Value"
             do while ((diff_a>criter_a) .and. (iter2<maxit))
                 iter2 = iter2+1
-                a2prime_bu=interpolate(1,n_a,a,n_k,k,aprime(:,:,1,1),n_a,n_k,n_z,n_s,aprime,kprime)
-                a2prime_be=interpolate(1,n_a,a,n_k,k,aprime(:,:,1,2),n_a,n_k,n_z,n_s,aprime,kprime)
-                a2prime_gu=interpolate(1,n_a,a,n_k,k,aprime(:,:,2,1),n_a,n_k,n_z,n_s,aprime,kprime)
-                a2prime_ge=interpolate(1,n_a,a,n_k,k,aprime(:,:,2,2),n_a,n_k,n_z,n_s,aprime,kprime)
+
+                if(mod(iter2,7)==0)then
+                    interChoice=2
+                else
+                    interChoice=2
+                end if
+
+                a2prime_bu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,1,1),n_a,n_k,n_z,n_s,aprime,kmprime)
+                a2prime_be=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,1,2),n_a,n_k,n_z,n_s,aprime,kmprime)
+                a2prime_gu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,2,1),n_a,n_k,n_z,n_s,aprime,kmprime)
+                a2prime_ge=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,2,2),n_a,n_k,n_z,n_s,aprime,kmprime)
                 forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
                     cprime_bu(i,j,ii,jj) = max(irate_b(i,j,ii,jj)*aprime(i,j,ii,jj)+&
                         mu*wagerate_b(i,j,ii,jj)+(1-delta)*aprime(i,j,ii,jj)-&
                         a2prime_bu(i,j,ii,jj),minc+eps)
                     cprime_be(i,j,ii,jj) = max(irate_b(i,j,ii,jj)*aprime(i,j,ii,jj)+&
-                        wagerate_b(i,j,ii,jj)/0.9+(1-delta)*aprime(i,j,ii,jj)-&
+                        wagerate_b(i,j,ii,jj)*l_bar+(1-delta)*aprime(i,j,ii,jj)-&
                         mu*wagerate_b(i,j,ii,jj)*(ssEmployment(1,1)/(1-ssEmployment(1,1)))&
                         -a2prime_be(i,j,ii,jj),minc+eps)
                     cprime_gu(i,j,ii,jj) = max(irate_g(i,j,ii,jj)*aprime(i,j,ii,jj)+&
                         mu*wagerate_g(i,j,ii,jj)+(1-delta)*aprime(i,j,ii,jj)-&
                         a2prime_gu(i,j,ii,jj),minc+eps)
                     cprime_ge(i,j,ii,jj) = max(irate_g(i,j,ii,jj)*aprime(i,j,ii,jj)+&
-                        wagerate_g(i,j,ii,jj)/0.9+(1-delta)*aprime(i,j,ii,jj)-&
-                        mu*wagerate_b(i,j,ii,jj)*(ssEmployment(1,1)/(1-ssEmployment(1,1)))&
+                        wagerate_g(i,j,ii,jj)*l_bar+(1-delta)*aprime(i,j,ii,jj)-&
+                        mu*wagerate_g(i,j,ii,jj)*(ssEmployment(2,1)/(1-ssEmployment(2,1)))&
                         -a2prime_ge(i,j,ii,jj),minc+eps)
                 end forall
                 forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
@@ -313,56 +324,151 @@ contains
 
                 forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
                     expec(i,j,ii,jj) = &
-                        muprime_bu(i,j,ii,jj)*(1-delta+irate_b(i,j,ii,jj))*prob_bu(i,j,ii,jj) +&
-                        muprime_be(i,j,ii,jj)*(1-delta+irate_b(i,j,ii,jj))*prob_be(i,j,ii,jj) +&
-                        muprime_gu(i,j,ii,jj)*(1-delta+irate_g(i,j,ii,jj))*prob_gu(i,j,ii,jj) +&
-                        muprime_ge(i,j,ii,jj)*(1-delta+irate_g(i,j,ii,jj))*prob_ge(i,j,ii,jj)
+                        muprime_bu(i,j,ii,jj)*(1.0_dp-delta+irate_b(i,j,ii,jj))*prob_bu(i,j,ii,jj) +&
+                        muprime_be(i,j,ii,jj)*(1.0_dp-delta+irate_b(i,j,ii,jj))*prob_be(i,j,ii,jj) +&
+                        muprime_gu(i,j,ii,jj)*(1.0_dp-delta+irate_g(i,j,ii,jj))*prob_gu(i,j,ii,jj) +&
+                        muprime_ge(i,j,ii,jj)*(1.0_dp-delta+irate_g(i,j,ii,jj))*prob_ge(i,j,ii,jj)
                 end forall
 
                 forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
-                    cn(i,j,ii,jj) = (beta*expec(i,j,ii,jj))**(-1/c_gamma)+minc
+                    cn(i,j,ii,jj) = (beta*expec(i,j,ii,jj))**(-1.0_dp/c_gamma)+minc
                 end forall
 
-                aprimen = min(max(wealth-cn,k_min),k_max)
+                aprimen = min(max(wealth-cn,a_min),a_max)
 
                 diff_a = maxval(abs(aprimen-aprime))
+                maxError = maxloc(abs(aprimen-aprime))
 
-                print *,diff_a
+                if(mod(iter2,100)==0)then
+                    print *,iter2,diff_a,maxError,aprimen(maxError(1),maxError(2),maxError(3),maxError(4))
+                end if
 
                 aprime = update_a*aprimen + (1-update_a)*aprime
+
             end do
-            c=wealth-kprime
+
+            c=wealth-aprime
 
             !aggregate stuff
+            acrosstemp=across
+            print *,"Starting aggregate simulation"
+            print *,"Simulation       state          avgK"
             do iter2=1,periodsForConv
                 kmts(iter2) = sum(across)/numHouseholds
-                kmts(iter2) = min(max(kmts(iter2),k_min),k_max)
+                kmts(iter2) = min(max(kmts(iter2),km_min),km_max)
 
                 temp1(:,1,1,1) = a
                 temp2(:,1,1,1) = kmts(iter2)
 
-                a2prime2_xu=interpolate(2,n_a,a,n_k,k,aprime(:,:,z(iter2),1),n_a,1,1,1,temp1,temp2)
-                a2prime2_xe=interpolate(2,n_a,a,n_k,k,aprime(:,:,z(iter2),2),n_a,1,1,1,temp1,temp2)
+                if(mod(iter2,7)==0)then
+                    interChoice=2
+                else
+                    interChoice=2
+                end if
+
+                a2prime2_xu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,z(iter2),1),n_a,1,1,1,temp1,temp2)
+                a2prime2_xe=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,z(iter2),2),n_a,1,1,1,temp1,temp2)
 
                 aprimet(:,1) = a2prime2_xu(:,1,1,1)
                 aprimet(:,2) = a2prime2_xe(:,1,1,1)
 
                 temp1a(:,1,1,1) = across
                 temp2a(:,1,1,1) = (/1.0D0,2.0D0/)
-                acrossn=interpolate(2,n_a,a,n_s,temp2a,aprimet,numHouseholds,1,1,1,temp1a,&
+                acrossn=interpolate(interChoice,n_a,a,n_s,temp2a,aprimet,numHouseholds,1,1,1,temp1a,&
                     DBLE(ssDistrib(iter2,:)%employmentState))
 
                 acrossn=min(max(acrossn,a_min),a_max)
                 across=acrossn(:,1,1,1)
+                ssDistrib(iter2,:)%capital=across
 
-                if(mod(iter2,10)==0)then
-                    print *,iter2
+                if(mod(iter2,100)==0)then
+                    print *,iter2,z(iter2),kmts(iter2)
                 end if
             end do
 
-            if(maxval(abs(phi(:,:,2)-phi(:,:,1)))<criter_B)then
+            !****************************************************
+            ! Split the data into two sets, one for good shocks and
+            ! one for bad shocks
+            !****************************************************
+            j=0
+            do i=periodsToCut+1,periodsForConv-1
+                if(z(i)>1)then
+                    j=j+1
+                end if
+            end do
+
+            allocate(goodShocks(j,3))
+            allocate(badShocks(periodsForConv-j-periodsToCut-1,3))
+
+            j=0
+            ii=0
+            do i=periodsToCut+1,periodsForConv-1
+                if(z(i)>1)then
+                    j=j+1
+                    goodShocks(j,1)=1.0D0
+                    goodShocks(j,2)=log(kmts(i))
+                    goodShocks(j,3)=log(kmts(i+1))
+                else
+                    ii=ii+1
+                    badShocks(ii,1)=1.0D0
+                    badShocks(ii,2)=log(kmts(i))
+                    badShocks(ii,3)=log(kmts(i+1))
+                end if
+            end do
+
+            !**************************************************
+            ! Find phi(0) and phi(1) using OLS
+            !**************************************************
+
+            !First for good shocks, which are state 2
+            j=size(goodShocks,dim=1)
+            call dgels('N', j, 2, 1, goodShocks(:,1:2), j, goodShocks(:,3),j, workArray,size(workArray),i)
+            if(i/=0)then
+                print *,"error regressing good shocks.",i
+                stop 0
+            end if
+            phi(2,1,2)=goodShocks(1,3)
+            phi(2,2,2)=goodShocks(2,3)
+
+            !And for bad shocks, which are state 1
+            j=size(badShocks,dim=1)
+            call dgels('N', j, 2, 1, badShocks(:,1:2), j, badShocks(:,3),j, workArray,size(workArray),i)
+            if(i/=0)then
+                print *,"error regressing good shocks.",i
+                stop 0
+            end if
+            phi(1,1,2)=badShocks(1,3)
+            phi(1,2,2)=badShocks(2,3)
+
+            diff_B=maxval(abs(phi(:,:,2)-phi(:,:,1)))
+
+            ! we use the terminal distribution of the current iteration as initial
+            ! distribution for a subsequent iteration. When the solution is sufficiently
+            ! accurate, dif_B<(criter_B*100), we stop such an updating and hold the
+            ! distribution "kcross" fixed for the rest of iterations. ·
+            if (diff_B<(criter_B*100)) then
+                across=acrosstemp;             ! don't update
+            end if
+
+
+            if(diff_B<criter_B)then
                 iterComplete = .true.
             end if
+
+            if (mod(iter,1)==0)then
+                print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
+                print *,"OLD:"
+                print *,"G:",phi(2,:,1)
+                print *,"B:",phi(1,:,1)
+                print *,"NEW:"
+                print *,"G:",phi(2,:,2)
+                print *,"B:",phi(1,:,2)
+                flush(6)
+            end if
+
+            phi(:,:,1)=lambda*phi(:,:,2)+(1.0D0-lambda)*phi(:,:,1)
+
+            deallocate(goodShocks, badShocks)
         end do
 
         deallocate(ssDistrib)
@@ -377,18 +483,19 @@ contains
         REAL(DP), dimension(s1,s2,s3,s4), intent(IN) :: xpoints,ypoints
         REAL(DP), dimension(s1,s2,s3,s4) :: interps
 
-        integer :: n
-        REAL(DP), dimension(:), allocatable :: x, y, f, rsq
+        integer :: n, n2
+        REAL(DP), dimension(:), allocatable :: x, y, f, rsq, x2, y2, f2
         integer, dimension(:), allocatable :: lnext
         REAL(DP) :: xmin, ymin, dx, dy, rmax
         integer, dimension(:,:), allocatable :: lcell
         REAL(DP), dimension(:,:), allocatable :: a
+        REAL(DP), dimension(:,:,:), allocatable :: work
 
         integer :: i,j, ii, jj, ier
 
         if(which == 1) then
             n=l1*l2
-            allocate(x(n),y(n),f(n),rsq(n),lnext(n),lcell(n,n),a(5,n))
+            allocate(x(n),y(n),f(n))
 
             do i = 1,l1
                 do j = 1,l2
@@ -398,13 +505,15 @@ contains
                 end do
             end do
 
-            call qshep2 ( n, x, y, f, 13, 19, ceiling(sqrt(DBLE(n)/3_dp)), lcell, lnext, xmin, ymin, &
+
+            allocate(rsq(n),lnext(n),lcell(n,n),a(5,n))
+            call qshep2 ( n, x, y, f, 13, 19, ceiling(sqrt(DBLE(n)/3.0_dp)), lcell, lnext, xmin, ymin, &
                 dx, dy, rmax, rsq, a, ier )
 
             if ( ier /= 0 ) then
                 write ( *, '(a)' ) ' '
                 write ( *, '(a)' ) 'interpolate - Error!'
-                write ( *, '(a,i6)' ) '  Error in interpoloate, IER = ', ier
+                write ( *, '(a,i6)' ) '  Error in qshep2, IER = ', ier
                 stop
             end if
 
@@ -419,12 +528,103 @@ contains
                 end do
             end do
 
-            deallocate(x,y,f,rsq,lnext,lcell,a)
+            deallocate(rsq,lnext,lcell,a)
+            deallocate(x,y,f)
+
+        else if(which == 2) then
+
+            n2 = s1*s2*s3*s4
+            allocate(x2(n2),y2(n2),f2(n2),work(3,l1,l2))
+
+            ier=1
+            do jj = 1,s4
+                do ii = 1,s3
+                    do j = 1,s2
+                        do i = 1,s1
+                            x2(ier)=xpoints(i,j,ii,jj)
+                            y2(ier)=ypoints(i,j,ii,jj)
+                            ier = ier+1
+                        end do
+                    end do
+                end do
+            end do
+
+            CALL RGBI3P(1,l1,l2,dim1,dim2,fn,n2,x2,y2,f2,ier,work)
+
+            if ( ier /= 0 ) then
+                write ( *, '(a)' ) ' '
+                write ( *, '(a)' ) 'interpolate - Error!'
+                write ( *, '(a,i6)' ) '  Error in SDBI3P, IER = ', ier
+                stop
+            end if
+
+            ier=1
+            do jj = 1,s4
+                do ii = 1,s3
+                    do j = 1,s2
+                        do i = 1,s1
+                            interps(i,j,ii,jj)=f2(ier)
+                            ier = ier+1
+                        end do
+                    end do
+                end do
+            end do
+
+            deallocate(x2,y2,f2,work)
         else
+            n2 = s1*s2*s3*s4
+            allocate(x2(n2),y2(n2),f2(n2))
+
+            ier=1
+            do jj = 1,s4
+                do ii = 1,s3
+                    do j = 1,s2
+                        do i = 1,s1
+                            x2(ier)=xpoints(i,j,ii,jj)
+                            y2(ier)=ypoints(i,j,ii,jj)
+                            ier = ier+1
+                        end do
+                    end do
+                end do
+            end do
+
+            call pwl_interp_2d ( l1, l2, dim1, dim2, fn, n2, x2, y2, f2 )
+            ier=1
+            do jj = 1,s4
+                do ii = 1,s3
+                    do j = 1,s2
+                        do i = 1,s1
+                            interps(i,j,ii,jj)=f2(ier)
+                            ier = ier+1
+                        end do
+                    end do
+                end do
+            end do
 
         end if
-
     end function interpolate
+
+    subroutine print4DArray(a)
+        REAL(DP), dimension(:,:,:,:), INTENT(IN) :: a
+        INTEGER :: s1, s2, s3, s4
+        INTEGER :: s,t,u,v
+
+        s1 = size(a,1)
+        s2 = size(a,2)
+        s3 = size(a,3)
+        s4 = size(a,4)
+
+        do v = 1,s4
+            do u = 1,s3
+                do t = 1,s2
+                    do s = 1,s1
+                        print *,s,t,u,v,a(s,t,u,v)
+                    end do
+                end do
+            end do
+        end do
+
+    end subroutine print4DArray
 
 end module aiyagariSolve
 
