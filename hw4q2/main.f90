@@ -1,7 +1,7 @@
 module aiyagariSolve
     USE nrtype
     USE QSHEP2D
-
+    USE lib_array, only : interp2d
     implicit none
 
     integer, parameter                  ::  n_a=200, n_z = 2, n_s = 2, n_k = 4
@@ -15,7 +15,7 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  curv=7.0D0,a_min=0.0D0, a_max=1000.0D0
     REAL(DP), parameter                   ::  km_min=30.0D0, km_max = 50.0D0
     REAL(DP), parameter                   ::  beta=0.99_dp, delta = 0.025D0,c_gamma=1.0D0
-    REAL(DP),parameter                    ::  criter_a=1D-8,criter_B=3D-8
+    REAL(DP),parameter                    ::  criter_a=1D-8,criter_B=1D-8
     REAL(DP),parameter                  :: update_a = 0.7_dp, lambda = 0.3_dp
     REAL(DP),parameter                    ::  mu = 0.15_dp !unemp benefits
 
@@ -619,7 +619,7 @@ contains
                 do ii = 1,s3
                     do j = 1,s2
                         do i = 1,s1
-                            interps(i,j,ii,jj)=interp2d_dp(dim1,dim2,fn,xpoints(i,j,ii,jj),ypoints(i,j,ii,jj),bounds_error=.true.)
+                            interps(i,j,ii,jj)=interp2d(dim1,dim2,fn,xpoints(i,j,ii,jj),ypoints(i,j,ii,jj),bounds_error=.true.)
                             ier = ier+1
                         end do
                     end do
@@ -632,109 +632,6 @@ contains
         end if
     end function interpolate
 
-    function interp2d_dp(x,y,array,x0,y0,bounds_error,fill_value) result(value)
-        ! Bilinar interpolation of array = f(x,y) at (x0,y0)
-
-        implicit none
-
-        real(dp),intent(in) :: x(:),y(:),array(:,:),x0,y0
-
-        logical,intent(in),optional :: bounds_error
-        ! whether to raise an out of bounds error
-
-        real(dp),intent(in),optional :: fill_value
-        ! value for out of bounds if bounds_error is .false.
-
-        real(dp) :: value,norm
-        integer :: i1,i2,j1,j2
-
-        logical :: bounds_error_tmp
-        real(dp) :: fill_value_tmp
-
-        if(present(bounds_error)) then
-            bounds_error_tmp = bounds_error
-        else
-            bounds_error_tmp = .true.
-        end if
-
-        if(.not.bounds_error_tmp) then
-            if(present(fill_value)) then
-                fill_value_tmp = fill_value
-            else
-                fill_value_tmp = 0._dp
-            end if
-        end if
-
-        if(size(x).ne.size(array,1)) stop "x does not match array"
-        if(size(y).ne.size(array,2)) stop "y does not match array"
-
-        i1 = locate_dp(x,x0) ; i2 = i1 + 1
-        j1 = locate_dp(y,y0) ; j2 = j1 + 1
-
-        if(i1==-1) then
-            if(bounds_error_tmp) then
-                write(0,'("ERROR: Interpolation out of bounds : ",ES11.4," in [",ES11.4,":",ES11.4,"]")') x0,x(1),x(size(x))
-                stop
-            else
-                value = fill_value_tmp
-                return
-            end if
-        end if
-
-        if(j1==-1) then
-            if(bounds_error_tmp) then
-                write(0,'("ERROR: Interpolation out of bounds : ",ES11.4," in [",ES11.4,":",ES11.4,"]")') y0,y(1),y(size(y))
-                stop
-            else
-                value = fill_value_tmp
-                return
-            end if
-        end if
-
-        norm = 1._dp / (x(i2) - x(i1)) / (y(j2)-y(j1))
-
-        value = array(i1,j1) * (x(i2)-x0) * (y(j2)-y0) * norm &
-            & + array(i2,j1) * (x0-x(i1)) * (y(j2)-y0) * norm &
-            & + array(i1,j2) * (x(i2)-x0) * (y0-y(j1)) * norm &
-            & + array(i2,j2) * (x0-x(i1)) * (y0-y(j1)) * norm
-
-    end function interp2d_dp
-
-    integer function locate_dp(xx,x)
-        ! Locate a value in a sorted array
-
-        implicit none
-        real(dp), dimension(:), intent(in) :: xx
-        real(dp), intent(in) :: x
-        integer :: n,jl,jm,ju
-        logical :: ascnd
-        n=size(xx)
-        ascnd = (xx(n) >= xx(1))
-        jl=0
-        ju=n+1
-        do
-            if (ju-jl <= 1) exit
-            jm=(ju+jl)/2
-            if (ascnd .eqv. (x >= xx(jm))) then
-                jl=jm
-            else
-                ju=jm
-            end if
-        end do
-
-        if (x == xx(1)) then
-            locate_dp = 1
-        else if (x == xx(n)) then
-            locate_dp = n-1
-        else if(ascnd.and. (x > xx(n) .or. x < xx(1))) then
-            locate_dp = -1
-        else if(.not.ascnd.and. (x < xx(n) .or. x > xx(1))) then
-            locate_dp = -1
-        else
-            locate_dp = jl
-        end if
-
-    end function locate_dp
     subroutine print4DArray(a)
         REAL(DP), dimension(:,:,:,:), INTENT(IN) :: a
         INTEGER :: s1, s2, s3, s4
