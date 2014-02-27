@@ -4,21 +4,20 @@ module aiyagariSolve
 
     implicit none
 
-    REAL(DP), parameter                   ::  sigma=.4D0
     integer, parameter                  ::  n_a=200, n_z = 2, n_s = 2, n_k = 4
-    integer, parameter                  :: myseed = 45678
+    integer, parameter                  :: myseed = 4567890
     integer, parameter                  :: periodsForConv = 6000
     integer, parameter                  :: periodsToCut = 1000
     integer, parameter                  :: numHouseholds = 10000
-    integer, parameter                  :: maxit = 1000
+    integer, parameter                  :: maxit = 4000
 
-    REAL(DP),parameter                   :: alpha=0.36
+    REAL(DP),parameter                   :: alpha=0.36D0
     REAL(DP), parameter                   ::  curv=7.0D0,a_min=0.0D0, a_max=1000.0D0
     REAL(DP), parameter                   ::  km_min=30.0D0, km_max = 50.0D0
-    REAL(DP), parameter                   ::  beta=0.99, delta = 0.025D0,c_gamma=1.0D0
+    REAL(DP), parameter                   ::  beta=0.99_dp, delta = 0.025D0,c_gamma=1.0D0
     REAL(DP),parameter                    ::  criter_a=1D-8,criter_B=3D-8
     REAL(DP),parameter                  :: update_a = 0.7_dp, lambda = 0.3_dp
-    REAL(DP),parameter                    ::  mu = 0.15 !unemp benefits
+    REAL(DP),parameter                    ::  mu = 0.15_dp !unemp benefits
 
     REAL(DP), dimension(n_z)              ::  zShocks
     REAL(DP), dimension(n_k)              ::  k
@@ -122,7 +121,7 @@ contains
     subroutine beginKrusellSmith()
         LOGICAL :: iterComplete
         INTEGER :: i,j,ii,jj,iter,iter2, interChoice
-        REAL(DP) :: diff_a, eps=epsilon(1.0_dp), kSS, incr, minc=0.1_dp, diff_b
+        REAL(DP) :: diff_a, eps=10D-10, kSS, incr, minc=0.1_dp, diff_b
         REAL(DP) :: ssErrG, ssTotG, ssErrB, ssTotB
         PROCEDURE(template_function), POINTER :: func
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: aprime, prob_bu, prob_be, prob_gu, prob_ge
@@ -153,11 +152,12 @@ contains
         ! We set up the grid of asset values based on the curvature, curv
         ! the minimum and maximum values in the grid a_min a_max
         !**************************************************************************
-        incr=DBLE(1.0_dp/(n_a-1.0_dp))
+        incr=DBLE(0.5_dp/(n_a-1))
         a=(/ (    incr*real(i-1,8),i=1,n_a    ) /)
-        a = a/2
-        a=(a**curv)/maxval(a**curv)
+        a = a**curv
+        a=a/maxval(a)
         a=a_min+(a_max-a_min)*a
+
         ! Set aggregate capital grid over which we want to evaluate, K
         ! curving this allows convergence. Without, it doesn't. Damn I hate splines!
         incr=(km_max-km_min)/(n_k-1)
@@ -165,11 +165,10 @@ contains
         !        k=k**2
         !        k=k/(km_max-km_min)**(1)+km_min
         k=k+km_min
-
         ! Initial capital function
-        forall(i=1:n_z,j=1:n_k,ii=1:n_s) aprime(:,j,i,ii)=0.9*a
+        forall(i=1:n_z,j=1:n_k,ii=1:n_s) aprime(:,j,i,ii)=0.9_dp*a
 
-        kSS=((1/beta-(1-delta))/alpha)**(1/(alpha-1))
+        kSS=((1.0_dp/beta-(1.0_dp-delta))/alpha)**(1.0_dp/(alpha-1.0_dp))
         across(:)=kSS
 
         phi(1,1,:)= 0.0_dp
@@ -199,7 +198,7 @@ contains
         transition(2,2,1,1) = 0.009115D0
         transition(2,2,1,2) = 0.115885D0
         transition(2,2,2,1) = 0.024306D0
-        transition(2,2,2,2) = 0.8506941D0
+        transition(2,2,2,2) = 0.850694D0
 
         ssEmployment=reshape((/0.1D0,0.04D0,0.90D0,0.96D0/),(/2,2/))
         l_bar = 1.0_dp/ssEmployment(1,2)
@@ -266,8 +265,7 @@ contains
             kmprime=min(max(km_min,kmprime),km_max)
 
             forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
-                irate_b(i,j,ii,jj)=deriv1Func(kmprime(i,j,ii,jj),&
-                    ssEmployment(1,2)*l_bar,zShocks(1))
+                irate_b(i,j,ii,jj)=deriv1Func(kmprime(i,j,ii,jj), ssEmployment(1,2)*l_bar,zShocks(1))
                 irate_g(i,j,ii,jj)=deriv1Func(kmprime(i,j,ii,jj),&
                     ssEmployment(2,2)*l_bar,zShocks(2))
                 wagerate_b(i,j,ii,jj)=deriv2Func(kmprime(i,j,ii,jj),&
@@ -277,40 +275,38 @@ contains
             end forall
 
             diff_a=1
-            iter2=1
+            iter2=0
             print *,"Starting individual problem"
-#if o
-            print *,"Iteration    diff                       location                                             Value"
-#endif
             do while ((diff_a>criter_a) .and. (iter2<maxit))
                 iter2 = iter2+1
 
-                if(mod(iter2,7)==0)then
+                if(iter2<500)then
                     interChoice=2
                 else
-                    interChoice=2
+                    interChoice=5
                 end if
-
                 a2prime_bu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,1,1),n_a,n_k,n_z,n_s,aprime,kmprime)
                 a2prime_be=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,1,2),n_a,n_k,n_z,n_s,aprime,kmprime)
                 a2prime_gu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,2,1),n_a,n_k,n_z,n_s,aprime,kmprime)
                 a2prime_ge=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,2,2),n_a,n_k,n_z,n_s,aprime,kmprime)
+
                 forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
                     cprime_bu(i,j,ii,jj) = max(irate_b(i,j,ii,jj)*aprime(i,j,ii,jj)+&
-                        mu*wagerate_b(i,j,ii,jj)+(1-delta)*aprime(i,j,ii,jj)-&
+                        mu*wagerate_b(i,j,ii,jj)+(1.0_dp-delta)*aprime(i,j,ii,jj)-&
                         a2prime_bu(i,j,ii,jj),minc+eps)
                     cprime_be(i,j,ii,jj) = max(irate_b(i,j,ii,jj)*aprime(i,j,ii,jj)+&
-                        wagerate_b(i,j,ii,jj)*l_bar+(1-delta)*aprime(i,j,ii,jj)-&
-                        mu*wagerate_b(i,j,ii,jj)*(ssEmployment(1,1)/(1-ssEmployment(1,1)))&
+                        wagerate_b(i,j,ii,jj)*l_bar+(1.0_dp-delta)*aprime(i,j,ii,jj)-&
+                        mu*wagerate_b(i,j,ii,jj)*(ssEmployment(1,1)/(1.0_dp-ssEmployment(1,1)))&
                         -a2prime_be(i,j,ii,jj),minc+eps)
                     cprime_gu(i,j,ii,jj) = max(irate_g(i,j,ii,jj)*aprime(i,j,ii,jj)+&
-                        mu*wagerate_g(i,j,ii,jj)+(1-delta)*aprime(i,j,ii,jj)-&
+                        mu*wagerate_g(i,j,ii,jj)+(1.0_dp-delta)*aprime(i,j,ii,jj)-&
                         a2prime_gu(i,j,ii,jj),minc+eps)
                     cprime_ge(i,j,ii,jj) = max(irate_g(i,j,ii,jj)*aprime(i,j,ii,jj)+&
-                        wagerate_g(i,j,ii,jj)*l_bar+(1-delta)*aprime(i,j,ii,jj)-&
-                        mu*wagerate_g(i,j,ii,jj)*(ssEmployment(2,1)/(1-ssEmployment(2,1)))&
+                        wagerate_g(i,j,ii,jj)*l_bar+(1.0_dp-delta)*aprime(i,j,ii,jj)-&
+                        mu*wagerate_g(i,j,ii,jj)*(ssEmployment(2,1)/(1.0_dp-ssEmployment(2,1)))&
                         -a2prime_ge(i,j,ii,jj),minc+eps)
                 end forall
+
                 forall(i=1:n_a,j=1:n_k,ii=1:n_z,jj=1:n_s)
                     muprime_bu(i,j,ii,jj) = (cprime_bu(i,j,ii,jj) - minc)**(-c_gamma)
                     muprime_be(i,j,ii,jj) = (cprime_be(i,j,ii,jj) - minc)**(-c_gamma)
@@ -335,12 +331,10 @@ contains
                 diff_a = maxval(abs(aprimen-aprime))
                 maxError = maxloc(abs(aprimen-aprime))
 
-#if 0
-                if(mod(iter2,100)==0)then
+                if(mod(iter2,500)==0)then
                     print *,iter2,diff_a,maxError,aprimen(maxError(1),maxError(2),maxError(3),maxError(4))
                 end if
-#endif
-                aprime = update_a*aprimen + (1-update_a)*aprime
+                aprime = update_a*aprimen + (1.0_dp-update_a)*aprime
 
             end do
 
@@ -349,9 +343,6 @@ contains
             !aggregate stuff
             acrosstemp=across
             print *,"Starting aggregate simulation"
-#if 0
-            print *,"Simulation       state          avgK"
-#endif
             do iter2=1,periodsForConv
                 kmts(iter2) = sum(across)/numHouseholds
                 kmts(iter2) = min(max(kmts(iter2),km_min),km_max)
@@ -380,11 +371,6 @@ contains
                 across=acrossn(:,1,1,1)
                 ssDistrib(iter2,:)%capital=across
 
-#if 0
-                if(mod(iter2,100)==0)then
-                    print *,iter2,z(iter2),kmts(iter2)
-                end if
-#endif
             end do
 
             !****************************************************
@@ -458,7 +444,7 @@ contains
                 across=acrosstemp;             ! don't update
             end if
 
-#if 0
+#if 1
             if (mod(iter,1)==0)then
                 print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
                 print *,"G:",phi(2,:,2),1.0_dp-ssErrG/ssTotG
@@ -585,7 +571,7 @@ contains
                 do ii = 1,s3
                     do j = 1,s2
                         CALL RGSF3P(1,l1,l2,dim1,dim2,fn,s1,xpoints(:,j,ii,jj),1,ypoints(1,j,ii,jj),&
-                                    interps(:,j,ii,jj), ier, work)
+                            interps(:,j,ii,jj), ier, work)
                     end do
                 end do
             end do
@@ -596,7 +582,7 @@ contains
                 stop
             end if
             deallocate(work)
-        else
+        else if (which == 4) then
             n2 = s1*s2*s3*s4
             allocate(x2(n2),y2(n2),f2(n2))
 
@@ -626,9 +612,129 @@ contains
                 end do
             end do
 
+        else if(which == 5) then
+
+            ier=1
+            do jj = 1,s4
+                do ii = 1,s3
+                    do j = 1,s2
+                        do i = 1,s1
+                            interps(i,j,ii,jj)=interp2d_dp(dim1,dim2,fn,xpoints(i,j,ii,jj),ypoints(i,j,ii,jj),bounds_error=.true.)
+                            ier = ier+1
+                        end do
+                    end do
+                end do
+            end do
+
+        else
+            print *, "error. Unknown interpolation type: ",which
+            stop 0
         end if
     end function interpolate
 
+    function interp2d_dp(x,y,array,x0,y0,bounds_error,fill_value) result(value)
+        ! Bilinar interpolation of array = f(x,y) at (x0,y0)
+
+        implicit none
+
+        real(dp),intent(in) :: x(:),y(:),array(:,:),x0,y0
+
+        logical,intent(in),optional :: bounds_error
+        ! whether to raise an out of bounds error
+
+        real(dp),intent(in),optional :: fill_value
+        ! value for out of bounds if bounds_error is .false.
+
+        real(dp) :: value,norm
+        integer :: i1,i2,j1,j2
+
+        logical :: bounds_error_tmp
+        real(dp) :: fill_value_tmp
+
+        if(present(bounds_error)) then
+            bounds_error_tmp = bounds_error
+        else
+            bounds_error_tmp = .true.
+        end if
+
+        if(.not.bounds_error_tmp) then
+            if(present(fill_value)) then
+                fill_value_tmp = fill_value
+            else
+                fill_value_tmp = 0._dp
+            end if
+        end if
+
+        if(size(x).ne.size(array,1)) stop "x does not match array"
+        if(size(y).ne.size(array,2)) stop "y does not match array"
+
+        i1 = locate_dp(x,x0) ; i2 = i1 + 1
+        j1 = locate_dp(y,y0) ; j2 = j1 + 1
+
+        if(i1==-1) then
+            if(bounds_error_tmp) then
+                write(0,'("ERROR: Interpolation out of bounds : ",ES11.4," in [",ES11.4,":",ES11.4,"]")') x0,x(1),x(size(x))
+                stop
+            else
+                value = fill_value_tmp
+                return
+            end if
+        end if
+
+        if(j1==-1) then
+            if(bounds_error_tmp) then
+                write(0,'("ERROR: Interpolation out of bounds : ",ES11.4," in [",ES11.4,":",ES11.4,"]")') y0,y(1),y(size(y))
+                stop
+            else
+                value = fill_value_tmp
+                return
+            end if
+        end if
+
+        norm = 1._dp / (x(i2) - x(i1)) / (y(j2)-y(j1))
+
+        value = array(i1,j1) * (x(i2)-x0) * (y(j2)-y0) * norm &
+            & + array(i2,j1) * (x0-x(i1)) * (y(j2)-y0) * norm &
+            & + array(i1,j2) * (x(i2)-x0) * (y0-y(j1)) * norm &
+            & + array(i2,j2) * (x0-x(i1)) * (y0-y(j1)) * norm
+
+    end function interp2d_dp
+
+    integer function locate_dp(xx,x)
+        ! Locate a value in a sorted array
+
+        implicit none
+        real(dp), dimension(:), intent(in) :: xx
+        real(dp), intent(in) :: x
+        integer :: n,jl,jm,ju
+        logical :: ascnd
+        n=size(xx)
+        ascnd = (xx(n) >= xx(1))
+        jl=0
+        ju=n+1
+        do
+            if (ju-jl <= 1) exit
+            jm=(ju+jl)/2
+            if (ascnd .eqv. (x >= xx(jm))) then
+                jl=jm
+            else
+                ju=jm
+            end if
+        end do
+
+        if (x == xx(1)) then
+            locate_dp = 1
+        else if (x == xx(n)) then
+            locate_dp = n-1
+        else if(ascnd.and. (x > xx(n) .or. x < xx(1))) then
+            locate_dp = -1
+        else if(.not.ascnd.and. (x < xx(n) .or. x > xx(1))) then
+            locate_dp = -1
+        else
+            locate_dp = jl
+        end if
+
+    end function locate_dp
     subroutine print4DArray(a)
         REAL(DP), dimension(:,:,:,:), INTENT(IN) :: a
         INTEGER :: s1, s2, s3, s4
@@ -649,6 +755,7 @@ contains
             end do
         end do
 
+        print *,"================================"
     end subroutine print4DArray
 
 end module aiyagariSolve
