@@ -254,6 +254,7 @@ contains
 
         iter = 0
         iterComplete = .false.
+        print *,"        iter               diff"
         do while ( (iter<maxit) .and. (.not. iterComplete))
             iter = iter+1
 
@@ -276,15 +277,10 @@ contains
 
             diff_a=1
             iter2=0
-            print *,"Starting individual problem"
             do while ((diff_a>criter_a) .and. (iter2<maxit))
                 iter2 = iter2+1
 
-                if(iter2<500)then
-                    interChoice=2
-                else
-                    interChoice=5
-                end if
+                interChoice=5
                 a2prime_bu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,1,1),n_a,n_k,n_z,n_s,aprime,kmprime)
                 a2prime_be=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,1,2),n_a,n_k,n_z,n_s,aprime,kmprime)
                 a2prime_gu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,2,1),n_a,n_k,n_z,n_s,aprime,kmprime)
@@ -331,9 +327,6 @@ contains
                 diff_a = maxval(abs(aprimen-aprime))
                 maxError = maxloc(abs(aprimen-aprime))
 
-                if(mod(iter2,500)==0)then
-                    print *,iter2,diff_a,maxError,aprimen(maxError(1),maxError(2),maxError(3),maxError(4))
-                end if
                 aprime = update_a*aprimen + (1.0_dp-update_a)*aprime
 
             end do
@@ -342,7 +335,6 @@ contains
 
             !aggregate stuff
             acrosstemp=across
-            print *,"Starting aggregate simulation"
             do iter2=1,periodsForConv
                 kmts(iter2) = sum(across)/numHouseholds
                 kmts(iter2) = min(max(kmts(iter2),km_min),km_max)
@@ -350,11 +342,7 @@ contains
                 temp1(:,1,1,1) = a
                 temp2(:,1,1,1) = kmts(iter2)
 
-                if(mod(iter2,7)==0)then
-                    interChoice=2
-                else
-                    interChoice=2
-                end if
+                interChoice=5
 
                 a2prime2_xu=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,z(iter2),1),n_a,1,1,1,temp1,temp2)
                 a2prime2_xe=interpolate(interChoice,n_a,a,n_k,k,aprime(:,:,z(iter2),2),n_a,1,1,1,temp1,temp2)
@@ -444,14 +432,10 @@ contains
                 across=acrosstemp;             ! don't update
             end if
 
-#if 1
             if (mod(iter,1)==0)then
-                print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
-                print *,"G:",phi(2,:,2),1.0_dp-ssErrG/ssTotG
-                print *,"B:",phi(1,:,2),1.0_dp-ssErrB/ssTotB
+                print *,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
                 flush(6)
             end if
-#endif
             phi(:,:,1)=lambda*phi(:,:,2)+(1.0D0-lambda)*phi(:,:,1)
 
             if(diff_B<criter_B)then
