@@ -578,6 +578,24 @@ contains
             end do
 
             deallocate(x2,y2,f2,work)
+        else if (which == 3) then
+
+            allocate(work(3,l1,l2))
+            do jj = 1,s4
+                do ii = 1,s3
+                    do j = 1,s2
+                        CALL RGSF3P(1,l1,l2,dim1,dim2,fn,s1,xpoints(:,j,ii,jj),1,ypoints(1,j,ii,jj),&
+                                    interps(:,j,ii,jj), ier, work)
+                    end do
+                end do
+            end do
+            if ( ier /= 0 ) then
+                write ( *, '(a)' ) ' '
+                write ( *, '(a)' ) 'interpolate - Error!'
+                write ( *, '(a,i6)' ) '  Error in SDSF3P, IER = ', ier
+                stop
+            end if
+            deallocate(work)
         else
             n2 = s1*s2*s3*s4
             allocate(x2(n2),y2(n2),f2(n2))
