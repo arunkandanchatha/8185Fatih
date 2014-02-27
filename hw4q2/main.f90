@@ -10,14 +10,14 @@ module aiyagariSolve
     integer, parameter                  :: periodsForConv = 6000
     integer, parameter                  :: periodsToCut = 1000
     integer, parameter                  :: numHouseholds = 10000
-    integer, parameter                  :: maxit = 2000
+    integer, parameter                  :: maxit = 1000
 
     REAL(DP),parameter                   :: alpha=0.36
-    REAL(DP), parameter                   ::  curv=2.0D0,a_min=0.0D0, a_max=1000.0D0
+    REAL(DP), parameter                   ::  curv=7.0D0,a_min=0.0D0, a_max=1000.0D0
     REAL(DP), parameter                   ::  km_min=30.0D0, km_max = 50.0D0
     REAL(DP), parameter                   ::  beta=0.99, delta = 0.025D0,c_gamma=1.0D0
-    REAL(DP),parameter                    ::  criter_a=1D-8,criter_B=1D-8
-    REAL(DP),parameter                  :: update_a = 0.7_dp, lambda = 0.3
+    REAL(DP),parameter                    ::  criter_a=1D-8,criter_B=3D-8
+    REAL(DP),parameter                  :: update_a = 0.7_dp, lambda = 0.3_dp
     REAL(DP),parameter                    ::  mu = 0.15 !unemp benefits
 
     REAL(DP), dimension(n_z)              ::  zShocks
@@ -123,6 +123,7 @@ contains
         LOGICAL :: iterComplete
         INTEGER :: i,j,ii,jj,iter,iter2, interChoice
         REAL(DP) :: diff_a, eps=epsilon(1.0_dp), kSS, incr, minc=0.1_dp, diff_b
+        REAL(DP) :: ssErrG, ssTotG, ssErrB, ssTotB
         PROCEDURE(template_function), POINTER :: func
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: aprime, prob_bu, prob_be, prob_gu, prob_ge
         REAL(DP),dimension(n_a,n_k,n_z,n_s) :: aaux,kmaux,aglabor,agshock_aux,idshock_aux
@@ -152,24 +153,17 @@ contains
         ! We set up the grid of asset values based on the curvature, curv
         ! the minimum and maximum values in the grid a_min a_max
         !**************************************************************************
-#if 0
-        incr=(a_max-a_min)/(n_a-1)
-        a=(/ (    incr*real(i-1,8),i=1,n_a    ) /)
-        a=a**curv
-        a=a/(a_max-a_min)**(curv-1)+a_min
-#else
         incr=DBLE(1.0_dp/(n_a-1.0_dp))
         a=(/ (    incr*real(i-1,8),i=1,n_a    ) /)
         a = a/2
-        a=(a**7)/maxval(a**7)
+        a=(a**curv)/maxval(a**curv)
         a=a_min+(a_max-a_min)*a
-#endif
         ! Set aggregate capital grid over which we want to evaluate, K
         ! curving this allows convergence. Without, it doesn't. Damn I hate splines!
         incr=(km_max-km_min)/(n_k-1)
         k=(/ (    incr*real(i-1,8),i=1,n_k    ) /)
-        !        k=k**curv
-        !        k=k/(km_max-km_min)**(curv-1)+km_min
+        !        k=k**2
+        !        k=k/(km_max-km_min)**(1)+km_min
         k=k+km_min
 
         ! Initial capital function
@@ -285,7 +279,9 @@ contains
             diff_a=1
             iter2=1
             print *,"Starting individual problem"
+#if o
             print *,"Iteration    diff                       location                                             Value"
+#endif
             do while ((diff_a>criter_a) .and. (iter2<maxit))
                 iter2 = iter2+1
 
@@ -339,10 +335,11 @@ contains
                 diff_a = maxval(abs(aprimen-aprime))
                 maxError = maxloc(abs(aprimen-aprime))
 
+#if 0
                 if(mod(iter2,100)==0)then
                     print *,iter2,diff_a,maxError,aprimen(maxError(1),maxError(2),maxError(3),maxError(4))
                 end if
-
+#endif
                 aprime = update_a*aprimen + (1-update_a)*aprime
 
             end do
@@ -352,7 +349,9 @@ contains
             !aggregate stuff
             acrosstemp=across
             print *,"Starting aggregate simulation"
+#if 0
             print *,"Simulation       state          avgK"
+#endif
             do iter2=1,periodsForConv
                 kmts(iter2) = sum(across)/numHouseholds
                 kmts(iter2) = min(max(kmts(iter2),km_min),km_max)
@@ -381,9 +380,11 @@ contains
                 across=acrossn(:,1,1,1)
                 ssDistrib(iter2,:)%capital=across
 
+#if 0
                 if(mod(iter2,100)==0)then
                     print *,iter2,z(iter2),kmts(iter2)
                 end if
+#endif
             end do
 
             !****************************************************
@@ -422,21 +423,28 @@ contains
 
             !First for good shocks, which are state 2
             j=size(goodShocks,dim=1)
+            incr=sum(goodShocks(:,3))/max(1,size(goodShocks(:,3)))
+            ssTotG = sum((goodShocks(:,3)-incr)**2)
             call dgels('N', j, 2, 1, goodShocks(:,1:2), j, goodShocks(:,3),j, workArray,size(workArray),i)
             if(i/=0)then
                 print *,"error regressing good shocks.",i
                 stop 0
             end if
+            ssErrG = sum(goodShocks(3:,3)**2)
             phi(2,1,2)=goodShocks(1,3)
             phi(2,2,2)=goodShocks(2,3)
 
+
             !And for bad shocks, which are state 1
             j=size(badShocks,dim=1)
+            incr=sum(badShocks(:,3))/max(1,size(badShocks(:,3)))
+            ssTotB = sum((badShocks(:,3)-incr)**2)
             call dgels('N', j, 2, 1, badShocks(:,1:2), j, badShocks(:,3),j, workArray,size(workArray),i)
             if(i/=0)then
-                print *,"error regressing good shocks.",i
+                print *,"error regressing bad shocks.",i
                 stop 0
             end if
+            ssErrB = sum(badShocks(3:,3)**2)
             phi(1,1,2)=badShocks(1,3)
             phi(1,2,2)=badShocks(2,3)
 
@@ -450,26 +458,25 @@ contains
                 across=acrosstemp;             ! don't update
             end if
 
+#if 0
+            if (mod(iter,1)==0)then
+                print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
+                print *,"G:",phi(2,:,2),1.0_dp-ssErrG/ssTotG
+                print *,"B:",phi(1,:,2),1.0_dp-ssErrB/ssTotB
+                flush(6)
+            end if
+#endif
+            phi(:,:,1)=lambda*phi(:,:,2)+(1.0D0-lambda)*phi(:,:,1)
 
             if(diff_B<criter_B)then
                 iterComplete = .true.
             end if
 
-            if (mod(iter,1)==0)then
-                print *,"KS:" ,iter,maxval(abs(phi(:,:,2)-phi(:,:,1)))
-                print *,"OLD:"
-                print *,"G:",phi(2,:,1)
-                print *,"B:",phi(1,:,1)
-                print *,"NEW:"
-                print *,"G:",phi(2,:,2)
-                print *,"B:",phi(1,:,2)
-                flush(6)
-            end if
-
-            phi(:,:,1)=lambda*phi(:,:,2)+(1.0D0-lambda)*phi(:,:,1)
-
             deallocate(goodShocks, badShocks)
         end do
+
+        print *,"G:",phi(2,:,1),1.0_dp-ssErrG/ssTotG
+        print *,"B:",phi(1,:,1),1.0_dp-ssErrB/ssTotB
 
         deallocate(ssDistrib)
 
