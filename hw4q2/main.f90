@@ -477,7 +477,7 @@ contains
         forall(i=1:periodsForConv,j=1:n_a) percWealth(i,j) = sum(statDist(i,1:j)*a(1:i))/sn(i)
         forall(i=1:periodsForConv) ginis(i) = sum(cdf(i,:)-percWealth(i,:))/sum(cdf(i,:))
 
-#if 0
+#if 1
         print *, statDist(1,:)
         print *,"=============================="
         print *, sum(statDist(1,:))
@@ -489,6 +489,7 @@ contains
         print *, percWealth(1,:)
         print *,"=============================="
         print *, ginis(1)
+        stop 0
 #endif
     end subroutine calculateGini
 
