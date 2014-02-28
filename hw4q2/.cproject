@@ -74,7 +74,7 @@
 							<tool id="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release.1233793159" name="GNU Fortran Compiler" superClass="photran.managedbuild.tool.gnu.fortran.compiler.win32.exe.release">
 								<option id="gnu.fortran.compiler.option.misc.other.80207891" name="Other flags" superClass="gnu.fortran.compiler.option.misc.other" value="-c -fmessage-length=0 -cpp -ffree-line-length-0" valueType="string"/>
 								<option id="gnu.fortran.compiler.option.warnings.toerrors.51213693" name="Warnings as errors (-Werror)" superClass="gnu.fortran.compiler.option.warnings.toerrors" value="false" valueType="boolean"/>
-								<option id="gnu.fortran.compiler.win32.exe.release.option.optimization.level.1087334010" superClass="gnu.fortran.compiler.win32.exe.release.option.optimization.level" value="gnu.fortran.optimization.level.none" valueType="enumerated"/>
+								<option id="gnu.fortran.compiler.win32.exe.release.option.optimization.level.1087334010" name="Optimization Level" superClass="gnu.fortran.compiler.win32.exe.release.option.optimization.level" value="gnu.fortran.optimization.level.most" valueType="enumerated"/>
 								<inputType id="photran.managedbuild.tool.gnu.fortran.compiler.input.570762472" superClass="photran.managedbuild.tool.gnu.fortran.compiler.input"/>
 							</tool>
 							<tool id="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release.615807278" name="GNU Fortran Linker" superClass="photran.managedbuild.tool.gnu.fortran.linker.win32.exe.release">

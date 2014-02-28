@@ -1,7 +1,7 @@
 module aiyagariSolve
     USE nrtype
     USE QSHEP2D
-    USE lib_array, only : interp2d
+    USE lib_array, only : interp2d, locate
     implicit none
 
     integer, parameter                  ::  n_a=200, n_z = 2, n_s = 2, n_k = 4
@@ -17,7 +17,7 @@ module aiyagariSolve
     REAL(DP), parameter                   ::  beta=0.99_dp, delta = 0.025D0,c_gamma=1.0D0
     REAL(DP),parameter                    ::  criter_a=1D-8,criter_B=1D-8
     REAL(DP),parameter                  :: update_a = 0.7_dp, lambda = 0.3_dp
-    REAL(DP),parameter                    ::  mu = 0.15_dp !unemp benefits
+    REAL(DP),parameter                    ::  mu = 0.0_dp !unemp benefits
 
     REAL(DP), dimension(n_z)              ::  zShocks
     REAL(DP), dimension(n_k)              ::  k
@@ -140,7 +140,7 @@ contains
         REAL(DP),dimension(numHouseholds) :: across, acrosstemp
         REAL(DP),dimension(numHouseholds,1,1,1) :: acrossn
         REAL(DP),dimension(n_s) :: s
-        REAL(DP),dimension(periodsForConv) :: kmts
+        REAL(DP),dimension(periodsForConv) :: kmts, gini
         REAL(DP),dimension(:,:),allocatable :: goodShocks,badShocks
         REAL(DP),dimension(2*periodsForConv*2) :: workArray
 
@@ -448,9 +448,49 @@ contains
         print *,"G:",phi(2,:,1),1.0_dp-ssErrG/ssTotG
         print *,"B:",phi(1,:,1),1.0_dp-ssErrB/ssTotB
 
+        call calculateGini(ssDistrib,gini)
+        print *,gini,z
         deallocate(ssDistrib)
 
     end subroutine beginKrusellSmith
+
+    subroutine calculateGini(distrib, ginis)
+        TYPE(household), dimension(periodsForConv,numHouseholds), INTENT(IN) ::  distrib
+        REAL(DP), dimension(periodsForConv), INTENT(OUT) :: ginis
+        INTEGER, dimension(periodsForConv,n_a) :: periodDistrib
+        REAL(DP), dimension(periodsForConv, n_a) :: statDist, cdf, percWealth
+        REAL(DP), dimension(periodsForConv) :: sn
+        INTEGER :: i,j ! iterators
+        INTEGER :: ind
+
+        periodDistrib = 0
+        do j=1,numHouseholds
+            do i=1,periodsForConv
+                ind=locate(a,distrib(i,j)%capital)
+                periodDistrib(i,ind) = periodDistrib(i,ind) + 1
+            end do
+        end do
+
+        statDist = periodDistrib/DBLE(numHouseholds)
+        forall(i=1:periodsForConv) sn(i) = sum(statDist(i,:)*a)
+        forall(i=1:periodsForConv,j=1:n_a) cdf(i,j) = sum(statDist(i,1:j))
+        forall(i=1:periodsForConv,j=1:n_a) percWealth(i,j) = sum(statDist(i,1:j)*a(1:i))/sn(i)
+        forall(i=1:periodsForConv) ginis(i) = sum(cdf(i,:)-percWealth(i,:))/sum(cdf(i,:))
+
+#if 0
+        print *, statDist(1,:)
+        print *,"=============================="
+        print *, sum(statDist(1,:))
+        print *,"=============================="
+        print *, sn(1)
+        print *,"=============================="
+        print *, cdf(1,:)
+        print *,"=============================="
+        print *, percWealth(1,:)
+        print *,"=============================="
+        print *, ginis(1)
+#endif
+    end subroutine calculateGini
 
     function interpolate(which, l1, dim1, l2, dim2, fn, s1, s2, s3, s4, xpoints, ypoints) RESULT (interps)
         integer, intent(in) :: which, l1, l2, s1, s2, s3, s4
